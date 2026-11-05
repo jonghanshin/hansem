@@ -4,7 +4,7 @@ import { Suspense } from "react";
 
 import { requireUser } from "@/lib/auth";
 import { fetchPost, increaseViews } from "@/lib/board";
-import { formatBoardDate, formatFileSize } from "@/lib/board-shared";
+import { formatBoardDate, formatFileSize, viewableType } from "@/lib/board-shared";
 import { canApprove } from "@/lib/data-scope";
 
 import { DeletePostButton } from "../delete-post-button";
@@ -81,16 +81,27 @@ async function PostView({ params }: { params: Params }) {
             <p className="mb-1.5 text-xs font-semibold text-zinc-500">첨부파일 {post.files.length}개</p>
             <ul className="space-y-1">
               {post.files.map((f) => (
-                <li key={f.id}>
+                <li key={f.id} className="flex max-w-full items-center gap-1">
                   <a
                     href={`/board/files/${f.id}`}
                     download={f.name}
-                    className="inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-blue-700 hover:bg-blue-50 hover:underline"
+                    title="내려받기"
+                    className="inline-flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-sm text-blue-700 hover:bg-blue-50 hover:underline"
                   >
                     <span aria-hidden>📎</span>
                     <span className="min-w-0 truncate">{f.name}</span>
                     <span className="shrink-0 text-xs text-zinc-400">{formatFileSize(f.size)}</span>
                   </a>
+                  {viewableType(f.name) && (
+                    <a
+                      href={`/board/files/${f.id}?view=1`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 rounded-md border border-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100"
+                    >
+                      보기
+                    </a>
+                  )}
                 </li>
               ))}
             </ul>

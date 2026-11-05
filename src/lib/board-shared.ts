@@ -73,6 +73,23 @@ export function validateUploadFiles(files: { name: string; size: number }[], exi
   return errors;
 }
 
+/** 새 탭에서 바로 볼 수 있는 형식 (확장자 기준, SVG처럼 스크립트를 담을 수 있는 형식은 제외) */
+const VIEWABLE_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".pdf": "application/pdf",
+};
+
+/** 바로 보기가 가능하면 Content-Type, 아니면 null */
+export function viewableType(name: string): string | null {
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? null : (VIEWABLE_TYPES[name.slice(dot).toLowerCase()] ?? null);
+}
+
 /** 한국 시간 표시 */
 export function formatBoardDate(iso: string, withTime = false): string {
   const d = new Date(iso);
