@@ -1,3 +1,8 @@
+import { Suspense } from "react";
+
+import { PendingApprovalsNotice } from "@/app/pending-approvals-notice";
+import { UserMenu } from "@/app/user-menu";
+
 import { MenuNav } from "./menu-nav";
 
 // 현장정보 / 입금내역 화면이 공유하는 레이아웃 (상단 메뉴 바)
@@ -5,7 +10,18 @@ import { MenuNav } from "./menu-nav";
 export default function MenuLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh">
-      <MenuNav />
+      <MenuNav
+        userSlot={
+          <>
+            <Suspense fallback={null}>
+              <PendingApprovalsNotice variant="nav" />
+            </Suspense>
+            <Suspense fallback={null}>
+              <UserMenu />
+            </Suspense>
+          </>
+        }
+      />
       {children}
     </div>
   );

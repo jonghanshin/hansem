@@ -66,14 +66,21 @@ export function SiteForm({
   onSynced,
   onClose,
   onDirtyChange,
+  fixedSalesName = null,
 }: {
   site: Site | null; // null이면 신규 입력
+  /** 값이 있으면(RD 로그인) 영업사원을 이 이름으로 고정하고 수정할 수 없게 한다 */
+  fixedSalesName?: string | null;
   onSaved: (site: Site, created: boolean) => void;
   onSynced: (site: Site) => void; // 자동 계산 값이 갱신됨
   onClose: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }) {
-  const initial = useMemo(() => toFormValues(site), [site]);
+  const initial = useMemo(() => {
+    const v = toFormValues(site);
+    if (fixedSalesName) v.영업사원 = fixedSalesName;
+    return v;
+  }, [site, fixedSalesName]);
   const [values, setValues] = useState<FormValues>(initial);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -273,6 +280,7 @@ export function SiteForm({
                 }
                 const type = FIELD_TYPE[key];
                 const wide = key === "현장주소";
+                const locked = key === "영업사원" && !!fixedSalesName;
                 return (
                   <label key={key} className={wide ? "col-span-2" : undefined}>
                     <span className="mb-1 block text-xs font-medium text-zinc-700">
@@ -283,6 +291,8 @@ export function SiteForm({
                       name={key}
                       value={values[key]}
                       onChange={(e) => setField(key, e.target.value)}
+                      readOnly={locked}
+                      title={locked ? "영업사원은 로그인한 본인으로 고정됩니다" : undefined}
                       onBlur={
                         type === "money"
                           ? () => {
@@ -293,7 +303,7 @@ export function SiteForm({
                       }
                       type={type === "date" ? "date" : type === "phone" ? "tel" : "text"}
                       inputMode={type === "money" || type === "phone" ? "numeric" : undefined}
-                      className={`w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
+                      className={`w-full rounded-md border border-zinc-300 ${locked ? "bg-zinc-100 text-zinc-600" : "bg-white"} px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
                         type === "money" ? "text-right tabular-nums" : ""
                       }`}
                     />

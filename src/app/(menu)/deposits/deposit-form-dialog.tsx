@@ -2,8 +2,8 @@
 
 import { useId, useState, useTransition } from "react";
 
-import { createDepositAction } from "@/app/actions";
-import { DEPOSIT_KINDS, DEPOSIT_TYPES, type Deposit, type DepositInput } from "@/lib/deposits";
+import { createDepositAction, updateDepositAction } from "@/app/actions";
+import { DEPOSIT_KINDS, DEPOSIT_TYPES, depositToInput, type Deposit, type DepositInput } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
 // 입금/출금 전환 시 입금구분 기본값 (기존 데이터: 입금은 모두 "한샘", 출금은 모두 "시공비")
@@ -22,31 +22,42 @@ export type DepositSuggestions = {
 
 export function DepositFormDialog({
   sites,
+  fixedSalesName = null,
   suggestions,
+  editing = null,
   onClose,
-  onCreated,
+  onDone,
 }: {
   sites: SiteSummary[];
+  fixedSalesName?: string | null;
   suggestions: DepositSuggestions;
+  /** 값이 있으면 이 입금내역의 수정 요청 화면 */
+  editing?: Deposit | null;
   onClose: () => void;
-  onCreated: (deposit: Deposit) => void;
+  /** 승인 요청 완료 (안내 문구 전달) */
+  onDone: (message: string) => void;
 }) {
   const idp = useId();
-  const [values, setValues] = useState<DepositInput>(() => ({
-    현장번호: "",
-    고객명: "",
-    영업사원: "",
-    계약가: "",
-    입출금: "입금",
-    입금액: "",
-    날짜: todayIso(),
-    입금자: "",
-    입금내용: "",
-    입금처: "",
-    입금구분: DEFAULT_TYPE.입금,
-    현금영수증: "",
-    비고: "",
-  }));
+  const isEdit = editing !== null;
+  const [values, setValues] = useState<DepositInput>(() =>
+    editing
+      ? { ...depositToInput(editing), ...(fixedSalesName && { 영업사원: fixedSalesName }) }
+      : {
+          현장번호: "",
+          고객명: "",
+          영업사원: fixedSalesName ?? "",
+          계약가: "",
+          입출금: "입금",
+          입금액: "",
+          날짜: todayIso(),
+          입금자: "",
+          입금내용: "",
+          입금처: "",
+          입금구분: DEFAULT_TYPE.입금,
+          현금영수증: "",
+          비고: "",
+        },
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -61,7 +72,7 @@ export function DepositFormDialog({
       // 현장정보에 있는 번호면 고객명/영업사원/계약가를 채운다 (이후 직접 수정 가능)
       ...(site && {
         고객명: site.고객명 ?? "",
-        영업사원: site.영업사원 ?? "",
+        영업사원: fixedSalesName ?? site.영업사원 ?? "",
         계약가: formatMoney(site.계약가),
       }),
     }));
@@ -85,12 +96,17 @@ export function DepositFormDialog({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await createDepositAction(values);
+      const res = editing ? await updateDepositAction(editing.id, values) : await createDepositAction(values);
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      onCreated(res.data);
+      const label = `${values.입출금} ${values.입금액}원`;
+      onDone(
+        isEdit
+          ? `${label} 수정을 요청했습니다. 승인 후 반영됩니다`
+          : `${label}을 승인 요청했습니다. 승인 후 입금내역에 반영됩니다`,
+      );
     });
   }
 
@@ -107,9 +123,14 @@ export function DepositFormDialog({
         className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-          <h2 id={`${idp}-title`} className="text-lg font-semibold text-zinc-900">
-            입금 등록
-          </h2>
+          <div>
+            <h2 id={`${idp}-title`} className="text-lg font-semibold text-zinc-900">
+              {isEdit ? "입금 수정" : "입금 등록"}
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {isEdit ? "수정 내용은 CEO 승인 후 입금내역에 반영됩니다." : "등록한 내역은 CEO 승인 후 입금내역에 반영됩니다."}
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -159,7 +180,13 @@ export function DepositFormDialog({
               </label>
               <label className="col-span-2">
                 <Label>영업사원</Label>
-                <input value={values.영업사원} onChange={(e) => set("영업사원", e.target.value)} className={INPUT} />
+                <input
+                  value={values.영업사원}
+                  onChange={(e) => set("영업사원", e.target.value)}
+                  readOnly={!!fixedSalesName}
+                  title={fixedSalesName ? "영업사원은 로그인한 본인으로 고정됩니다" : undefined}
+                  className={`${INPUT}${fixedSalesName ? " bg-zinc-100! text-zinc-600!" : ""}`}
+                />
               </label>
               <label className="col-span-2">
                 <Label>계약가</Label>
@@ -290,7 +317,7 @@ export function DepositFormDialog({
               disabled={pending}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
-              {pending ? "등록 중…" : "등록"}
+              {pending ? "요청 중…" : "승인 요청"}
             </button>
           </div>
         </div>

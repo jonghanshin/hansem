@@ -13,7 +13,14 @@ type Panel = { kind: "none" } | { kind: "create" } | { kind: "edit"; id: number 
 
 const SEARCH_KEYS = ["현장번호", "고객명", "고객전화번호", "영업사원", "현장주소", "계약경로", "공사품목"] as const;
 
-export function SitesManager({ initialSites }: { initialSites: Site[] }) {
+export function SitesManager({
+  initialSites,
+  fixedSalesName = null,
+}: {
+  initialSites: Site[];
+  /** RD 로그인이면 본인 이름 (신규·수정 시 영업사원 고정) */
+  fixedSalesName?: string | null;
+}) {
   const [sites, setSites] = useState(initialSites);
   const [panel, setPanel] = useState<Panel>({ kind: "none" });
   const [query, setQuery] = useState("");
@@ -208,6 +215,7 @@ export function SitesManager({ initialSites }: { initialSites: Site[] }) {
             <SiteForm
               key={panel.kind === "create" ? "new" : selected!.id}
               site={panel.kind === "create" ? null : selected}
+              fixedSalesName={fixedSalesName}
               onDirtyChange={(d) => {
                 dirtyRef.current = d;
               }}

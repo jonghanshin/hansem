@@ -19,14 +19,64 @@ export type DepositRow = {
   비고: string | null;
 };
 
-export type Deposit = DepositRow & {
+/** 내용 컬럼 (id 제외). 승인필요입금내역도 같은 컬럼을 가진다. */
+export const DEPOSIT_COLUMNS = [
+  "고객명",
+  "영업사원",
+  "현장번호",
+  "계약가",
+  "입금액",
+  "입출금",
+  "입금자",
+  "입금내용",
+  "입금처",
+  "입금구분",
+  "날짜",
+  "현금영수증",
+  "비고",
+] as const satisfies readonly (keyof DepositRow)[];
+
+/** 입금내역 테이블의 한 행 (id 포함) */
+export type DepositRecord = DepositRow & { id: number };
+
+export type Parsed<R extends DepositRow> = R & {
   /** 날짜를 YYYY-MM-DD로 해석한 값 (해석 불가 시 null, 원문은 `날짜`) */
   dateIso: string | null;
   /** 입금액을 숫자로 해석한 값 (해석 불가 시 null, 원문은 `입금액`) */
   amount: number | null;
 };
 
-export function toDeposit(row: DepositRow): Deposit {
+export type Deposit = Parsed<DepositRecord>;
+
+/** 행에서 내용 컬럼만 뽑는다 */
+export function pickDepositRow(row: DepositRow): DepositRow {
+  return Object.fromEntries(DEPOSIT_COLUMNS.map((c) => [c, row[c] ?? null])) as DepositRow;
+}
+
+export function sameDepositRow(a: DepositRow, b: DepositRow): boolean {
+  return DEPOSIT_COLUMNS.every((c) => (a[c] ?? null) === (b[c] ?? null));
+}
+
+/** 수정 화면 입력값으로 변환 */
+export function depositToInput(d: Deposit): DepositInput {
+  return {
+    현장번호: d.현장번호 ?? "",
+    고객명: d.고객명 ?? "",
+    영업사원: d.영업사원 ?? "",
+    계약가: d.계약가 ?? "",
+    입출금: d.입출금 ?? "",
+    입금액: d.amount !== null ? formatMoney(d.amount) : (d.입금액 ?? ""),
+    날짜: d.dateIso ?? "",
+    입금자: d.입금자 ?? "",
+    입금내용: d.입금내용 ?? "",
+    입금처: d.입금처 ?? "",
+    입금구분: d.입금구분 ?? "",
+    현금영수증: d.현금영수증 ?? "",
+    비고: d.비고 ?? "",
+  };
+}
+
+export function toDeposit<R extends DepositRow>(row: R): Parsed<R> {
   return {
     ...row,
     dateIso: toIsoDate(row.날짜) ?? null,
@@ -35,7 +85,7 @@ export function toDeposit(row: DepositRow): Deposit {
 }
 
 /** 최신 날짜 먼저, 날짜를 모르는 행은 맨 뒤 */
-export function sortDepositsDesc(rows: Deposit[]): Deposit[] {
+export function sortDepositsDesc<T extends Parsed<DepositRow>>(rows: T[]): T[] {
   return [...rows].sort((a, b) =>
     a.dateIso === null || b.dateIso === null ? compareDeposits(a, b) : compareDeposits(b, a),
   );
@@ -127,7 +177,7 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
 }
 
 /** 날짜 오름차순, 날짜를 모르는 행은 맨 뒤 */
-export function compareDeposits(a: Deposit, b: Deposit) {
+export function compareDeposits(a: Parsed<DepositRow>, b: Parsed<DepositRow>) {
   if (a.dateIso === b.dateIso) return 0;
   if (a.dateIso === null) return 1;
   if (b.dateIso === null) return -1;

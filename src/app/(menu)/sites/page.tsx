@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { Suspense } from "react";
 
+import { requireScope } from "@/lib/auth";
 import { SitesManager } from "@/app/sites-manager";
 import { fetchSites } from "@/lib/sites-data";
 
@@ -18,7 +19,8 @@ export default function SitesPage() {
 
 async function SitesLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다
-  const result = await fetchSites().then(
+  const scope = await requireScope(); // 로그인 확인 + RD는 본인 데이터만
+  const result = await fetchSites(scope).then(
     (sites) => ({ ok: true as const, sites }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );
@@ -30,5 +32,5 @@ async function SitesLoader() {
       </div>
     );
   }
-  return <SitesManager initialSites={result.sites} />;
+  return <SitesManager key={scope.salesName ?? "*"} initialSites={result.sites} fixedSalesName={scope.salesName} />;
 }

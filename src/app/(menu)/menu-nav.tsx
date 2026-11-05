@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { MENU } from "@/app/menu";
 
-export function MenuNav() {
+export function MenuNav({ userSlot }: { userSlot?: React.ReactNode }) {
   const pathname = usePathname();
   return (
     <nav className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 bg-zinc-900 px-3 sm:px-5" aria-label="주 메뉴">
@@ -27,6 +27,7 @@ export function MenuNav() {
           </Link>
         );
       })}
+      <div className="ml-auto flex items-center gap-2">{userSlot}</div>
     </nav>
   );
 }

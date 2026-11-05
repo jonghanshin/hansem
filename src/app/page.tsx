@@ -1,13 +1,27 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { MENU } from "@/app/menu";
+import { PendingApprovalsNotice } from "@/app/pending-approvals-notice";
+import { UserMenu } from "@/app/user-menu";
 
 export default function Home() {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center bg-zinc-50 px-4 py-12">
       <div className="w-full max-w-2xl">
-        <h1 className="text-2xl font-bold text-zinc-900">현장정보 관리</h1>
-        <p className="mt-1 text-sm text-zinc-500">메뉴를 선택하세요.</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-900">현장정보 관리</h1>
+            <p className="mt-1 text-sm text-zinc-500">메뉴를 선택하세요.</p>
+          </div>
+          <Suspense fallback={null}>
+            <UserMenu tone="light" />
+          </Suspense>
+        </div>
+
+        <Suspense fallback={null}>
+          <PendingApprovalsNotice variant="banner" />
+        </Suspense>
 
         <ul className="mt-8 grid gap-4 sm:grid-cols-2">
           {MENU.map((m) => (

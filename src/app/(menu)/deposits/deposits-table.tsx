@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import { deleteDepositAction } from "@/app/actions";
 import { ExportButton } from "@/app/export-button";
 import { Pagination, scrollToListTop, usePagination } from "@/app/pagination";
 import { depositExportTable } from "@/lib/export-rows";
 
-import { DEPOSIT_TYPES, sortDepositsDesc, type Deposit } from "@/lib/deposits";
+import type { RequestKind } from "@/lib/approvals";
+import { DEPOSIT_TYPES, type Deposit } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
 import { DepositFormDialog, type DepositSuggestions } from "./deposit-form-dialog";
@@ -44,11 +46,32 @@ function distinct(deposits: Deposit[], key: "영업사원" | "입금구분" | "�
   );
 }
 
-export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Deposit[]; sites: SiteSummary[] }) {
+export function DepositsTable({
+  initialDeposits,
+  sites,
+  fixedSalesName = null,
+  pendingTargets,
+}: {
+  initialDeposits: Deposit[];
+  sites: SiteSummary[];
+  /** 입금내역 id → 승인 대기 중인 수정/삭제 요청 */
+  pendingTargets: Record<number, RequestKind>;
+  /** RD 로그인이면 본인 이름 (입금 등록 시 영업사원 고정) */
+  fixedSalesName?: string | null;
+}) {
   const [deposits, setDeposits] = useState(initialDeposits);
+  // 이 화면은 이동해도 숨겨진 채 보관되므로, 서버에서 새 목록(예: 승인 후)이 오면 반영한다
+  const [prevInitial, setPrevInitial] = useState(initialDeposits);
+  if (initialDeposits !== prevInitial) {
+    setPrevInitial(initialDeposits);
+    setDeposits(initialDeposits);
+  }
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [kind, setKind] = useState<Kind>("전체");
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Deposit | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletePending, startDelete] = useTransition();
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,6 +130,53 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
   const isFiltered = kind !== "전체" || Object.values(filters).some((v) => v !== "");
   const dateRangeInvalid = !!(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
 
+  function requestDelete(d: Deposit) {
+    const label = `${d.dateIso ?? d.날짜 ?? ""} ${d.고객명 ?? d.현장번호 ?? ""} ${d.입출금 ?? ""} ${d.입금액 ?? ""}원`;
+    if (!window.confirm(`${label}\n\n이 입금내역의 삭제를 요청하시겠습니까?\nCEO 승인 후 삭제됩니다.`)) return;
+    setDeletingId(d.id);
+    startDelete(async () => {
+      const res = await deleteDepositAction(d.id);
+      setDeletingId(null);
+      if (!res.ok) {
+        window.alert(res.error);
+        return;
+      }
+      setToast("삭제를 요청했습니다. 승인 후 삭제됩니다");
+    });
+  }
+
+  /** 행별 수정/삭제 버튼. 이미 승인 대기 중인 요청이 있으면 상태만 표시 */
+  function rowActions(d: Deposit) {
+    const waiting = pendingTargets[d.id];
+    if (waiting) {
+      return (
+        <span className="whitespace-nowrap rounded bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
+          {waiting} 승인대기
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex gap-1">
+        <button
+          type="button"
+          onClick={() => setEditing(d)}
+          disabled={deletePending}
+          className="whitespace-nowrap rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+        >
+          수정
+        </button>
+        <button
+          type="button"
+          onClick={() => requestDelete(d)}
+          disabled={deletePending}
+          className="whitespace-nowrap rounded border border-red-200 bg-white px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+        >
+          {deletingId === d.id ? "요청 중…" : "삭제"}
+        </button>
+      </span>
+    );
+  }
+
   const inTotal = sum(filtered.filter((d) => d.입출금 === "입금"));
   const outTotal = sum(filtered.filter((d) => d.입출금 === "출금"));
 
@@ -149,16 +219,22 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
         </div>
       </header>
 
-      {formOpen && (
+      {(formOpen || editing) && (
         <DepositFormDialog
+          key={editing?.id ?? "new"}
           sites={sites}
+          fixedSalesName={fixedSalesName}
           suggestions={suggestions}
-          onClose={() => setFormOpen(false)}
-          onCreated={(created) => {
-            setDeposits((prev) => sortDepositsDesc([created, ...prev]));
-            goToPage(1);
+          editing={editing}
+          onClose={() => {
             setFormOpen(false);
-            setToast(`${created.입출금 ?? ""} ${created.입금액 ?? ""}원을 등록했습니다`);
+            setEditing(null);
+          }}
+          onDone={(message) => {
+            // 승인필요입금내역에 '승인대기' 요청으로 들어감. CEO가 승인해야 이 목록에 반영된다.
+            setFormOpen(false);
+            setEditing(null);
+            setToast(message);
           }}
         />
       )}
@@ -292,13 +368,12 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
       <div ref={listRef} className="flex-1 scroll-mt-11 bg-white lg:min-h-0 lg:overflow-auto">
         {/* 모바일: 카드 목록 */}
         <ul className="divide-y divide-zinc-100 lg:hidden">
-          {paging.pageItems.map((d, i) => {
+          {paging.pageItems.map((d) => {
             const isIn = d.입출금 === "입금";
             const isOut = d.입출금 === "출금";
             const detail = [d.입금자, d.입금처 && `→ ${d.입금처}`, d.입금내용].filter(Boolean).join(" · ");
             return (
-              // 입금내역 테이블에는 고유 id가 없어 순번을 key로 사용
-              <li key={i} className="px-4 py-3">
+              <li key={d.id} className="px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-1.5">
                     {d.입출금 && <span className={`shrink-0 ${kindBadge(d.입출금)}`}>{d.입출금}</span>}
@@ -329,6 +404,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
                     {[d.현금영수증 && `현금영수증: ${d.현금영수증}`, d.비고 && `비고: ${d.비고}`].filter(Boolean).join(" · ")}
                   </p>
                 )}
+                <div className="mt-2 flex justify-end">{rowActions(d)}</div>
               </li>
             );
           })}
@@ -351,15 +427,15 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
               <Th right>계약가</Th>
               <Th>현금영수증</Th>
               <Th>비고</Th>
+              <Th>관리</Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {paging.pageItems.map((d, i) => {
+            {paging.pageItems.map((d) => {
               const isIn = d.입출금 === "입금";
               const isOut = d.입출금 === "출금";
               return (
-                // 입금내역 테이블에는 고유 id가 없어 순번을 key로 사용
-                <tr key={i} className="hover:bg-zinc-50">
+                <tr key={d.id} className="hover:bg-zinc-50">
                   <Td mono>{d.dateIso ?? d.날짜}</Td>
                   <Td mono>{d.현장번호}</Td>
                   <Td strong>{d.고객명}</Td>
@@ -385,6 +461,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
                   <td className="max-w-60 truncate px-3 py-2 text-zinc-700" title={d.비고 ?? ""}>
                     {d.비고}
                   </td>
+                  <td className="whitespace-nowrap px-3 py-2">{rowActions(d)}</td>
                 </tr>
               );
             })}

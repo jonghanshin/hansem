@@ -1,6 +1,8 @@
 import { connection } from "next/server";
 import { Suspense } from "react";
 
+import { fetchPendingTargets } from "@/lib/approvals";
+import { requireScope } from "@/lib/auth";
 import { fetchAllDeposits, fetchSiteSummaries } from "@/lib/sites-data";
 
 import { DepositsTable } from "./deposits-table";
@@ -19,8 +21,9 @@ export default function DepositsPage() {
 
 async function DepositsLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다
-  const result = await Promise.all([fetchAllDeposits(), fetchSiteSummaries()]).then(
-    ([deposits, sites]) => ({ ok: true as const, deposits, sites }),
+  const scope = await requireScope(); // 로그인 확인 + RD는 본인 데이터만
+  const result = await Promise.all([fetchAllDeposits(scope), fetchSiteSummaries(scope), fetchPendingTargets()]).then(
+    ([deposits, sites, pendingTargets]) => ({ ok: true as const, deposits, sites, pendingTargets }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );
   if (!result.ok) {
@@ -31,5 +34,13 @@ async function DepositsLoader() {
       </div>
     );
   }
-  return <DepositsTable initialDeposits={result.deposits} sites={result.sites} />;
+  return (
+    <DepositsTable
+      key={scope.salesName ?? "*"}
+      initialDeposits={result.deposits}
+      sites={result.sites}
+      pendingTargets={result.pendingTargets}
+      fixedSalesName={scope.salesName}
+    />
+  );
 }

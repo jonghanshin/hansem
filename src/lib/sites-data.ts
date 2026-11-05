@@ -1,6 +1,7 @@
 import "server-only";
 
-import { compareDeposits, sortDepositsDesc, toDeposit, type Deposit, type DepositRow } from "@/lib/deposits";
+import { applyScope, type DataScope } from "@/lib/data-scope";
+import { compareDeposits, sortDepositsDesc, toDeposit, type Deposit, type DepositRecord } from "@/lib/deposits";
 import type { Site, SiteSummary } from "@/lib/sites";
 import { DEPOSITS_TABLE, getSupabaseAdmin, SITES_TABLE } from "@/lib/supabase-admin";
 
@@ -21,28 +22,28 @@ async function fetchAllRows<T>(
   }
 }
 
-export async function fetchSites(): Promise<Site[]> {
+export async function fetchSites(scope: DataScope): Promise<Site[]> {
   return fetchAllRows<Site>("현장정보", (from, to) =>
-    getSupabaseAdmin().from(SITES_TABLE).select("*").order("id", { ascending: false }).range(from, to),
+    applyScope(getSupabaseAdmin().from(SITES_TABLE).select("*"), scope)
+      .order("id", { ascending: false })
+      .range(from, to),
   );
 }
 
-export async function fetchDeposits(siteNumber: string): Promise<Deposit[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from(DEPOSITS_TABLE)
-    .select("*")
-    .eq("현장번호", siteNumber);
+export async function fetchDeposits(siteNumber: string, scope: DataScope): Promise<Deposit[]> {
+  const { data, error } = await applyScope(
+    getSupabaseAdmin().from(DEPOSITS_TABLE).select("*").eq("현장번호", siteNumber),
+    scope,
+  );
   if (error) throw new Error(`입금내역 조회 실패: ${error.message}`);
-  return (data as DepositRow[]).map(toDeposit).sort(compareDeposits);
+  return (data as DepositRecord[]).map(toDeposit).sort(compareDeposits);
 }
 
 /** 전체 입금내역 (최신 날짜 먼저, 날짜 해석 불가 행은 맨 뒤) */
-export async function fetchAllDeposits(): Promise<Deposit[]> {
+export async function fetchAllDeposits(scope: DataScope): Promise<Deposit[]> {
   // 입금내역에는 고유 id가 없어, 나눠 읽는 동안 순서가 흔들리지 않도록 여러 컬럼으로 정렬한다.
-  const rows = await fetchAllRows<DepositRow>("입금내역", (from, to) =>
-    getSupabaseAdmin()
-      .from(DEPOSITS_TABLE)
-      .select("*")
+  const rows = await fetchAllRows<DepositRecord>("입금내역", (from, to) =>
+    applyScope(getSupabaseAdmin().from(DEPOSITS_TABLE).select("*"), scope)
       .order("날짜")
       .order("현장번호")
       .order("입출금")
@@ -54,16 +55,25 @@ export async function fetchAllDeposits(): Promise<Deposit[]> {
   return sortDepositsDesc(rows.map(toDeposit));
 }
 
-export async function fetchSiteSummaries(): Promise<SiteSummary[]> {
+export async function fetchSiteSummaries(scope: DataScope): Promise<SiteSummary[]> {
   const rows = await fetchAllRows<Site>("현장 목록", (from, to) =>
-    getSupabaseAdmin()
-      .from(SITES_TABLE)
-      .select("*")
+    applyScope(getSupabaseAdmin().from(SITES_TABLE).select("*"), scope)
       .not("현장번호", "is", null)
       .order("id", { ascending: false })
       .range(from, to),
   );
   return rows.map(({ 현장번호, 고객명, 영업사원, 계약가 }) => ({ 현장번호, 고객명, 영업사원, 계약가 }));
+}
+
+/** 범위 내에 해당 현장번호의 현장이 있는지 (다른 영업사원 현장의 근거 내역 조회 차단용) */
+export async function siteNumberInScope(siteNumber: string, scope: DataScope): Promise<boolean> {
+  if (scope.salesName == null) return true;
+  const { count, error } = await applyScope(
+    getSupabaseAdmin().from(SITES_TABLE).select("id", { count: "exact", head: true }).eq("현장번호", siteNumber),
+    scope,
+  );
+  if (error) throw new Error(`현장정보 조회 실패: ${error.message}`);
+  return (count ?? 0) > 0;
 }
 
 export async function fetchExistingSiteNumbers(numbers: string[]): Promise<Set<string>> {
