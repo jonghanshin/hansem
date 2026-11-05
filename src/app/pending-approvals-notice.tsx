@@ -2,38 +2,88 @@ import Link from "next/link";
 
 import { countPendingRequests } from "@/lib/approvals";
 import { getSession } from "@/lib/auth";
-import { canApprove } from "@/lib/data-scope";
+import { canApprove, RESTRICTED_ROLE } from "@/lib/data-scope";
 
 /**
- * CEO에게만: 승인 대기 입금내역이 있으면 건수를 보여주고 승인 화면으로 연결한다.
- * 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
+ * 승인 대기 알림. 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
+ * - 승인 권한자(CEO·관리자): 전체 승인 대기 건수 → 승인 화면(/approvals)
+ * - RD: 본인이 요청한 승인 대기 건수 → 내 요청 화면(/my-requests)
  */
 export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "banner" }) {
   const session = await getSession();
-  if (!canApprove(session)) return null;
-  const count = await countPendingRequests().catch(() => 0);
-  if (count === 0) return null;
+  if (!session) return null;
 
-  if (variant === "nav") {
-    return (
-      <Link
-        href="/approvals"
-        className="flex items-center gap-1.5 rounded bg-amber-400 px-2.5 py-1 text-sm font-semibold text-zinc-900 hover:bg-amber-300"
-      >
-        승인<span className="hidden sm:inline"> 필요</span> <span className="rounded-full bg-zinc-900 px-1.5 text-xs text-white tabular-nums">{count}</span>
-      </Link>
+  if (canApprove(session)) {
+    const count = await countPendingRequests().catch(() => 0);
+    if (count === 0) return null;
+    return variant === "nav" ? (
+      <NavLink href="/approvals" highlight count={count}>
+        승인<span className="hidden sm:inline"> 필요</span>
+      </NavLink>
+    ) : (
+      <Banner href="/approvals" title={`승인이 필요한 입금내역이 ${count}건 있습니다.`} hint="눌러서 내역을 확인하고 승인하세요." action="승인하기 →" />
     );
   }
+
+  if (session.role.trim() === RESTRICTED_ROLE) {
+    const count = await countPendingRequests(session.uid).catch(() => 0);
+    // 메뉴의 '내 요청'은 항상 보여 주고, 첫 화면 배너는 대기 건이 있을 때만
+    if (variant === "nav") {
+      return (
+        <NavLink href="/my-requests" highlight={count > 0} count={count}>
+          내 요청
+        </NavLink>
+      );
+    }
+    if (count === 0) return null;
+    return (
+      <Banner
+        href="/my-requests"
+        title={`승인을 기다리는 내 요청이 ${count}건 있습니다.`}
+        hint="눌러서 승인 대기 중인 내역을 확인하세요."
+        action="내 요청 보기 →"
+      />
+    );
+  }
+
+  return null;
+}
+
+function NavLink({
+  href,
+  highlight,
+  count,
+  children,
+}: {
+  href: string;
+  highlight: boolean;
+  count: number;
+  children: React.ReactNode;
+}) {
   return (
     <Link
-      href="/approvals"
+      href={href}
+      className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-sm font-semibold ${
+        highlight ? "bg-amber-400 text-zinc-900 hover:bg-amber-300" : "text-zinc-300 hover:bg-white/10 hover:text-white"
+      }`}
+    >
+      {children}
+      {count > 0 && <span className="rounded-full bg-zinc-900 px-1.5 text-xs text-white tabular-nums">{count}</span>}
+    </Link>
+  );
+}
+
+function Banner({ href, title, hint, action }: { href: string; title: string; hint: string; action: string }) {
+  return (
+    <Link
+      href={href}
       className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-900 shadow-sm hover:border-amber-400 hover:bg-amber-100"
     >
       <span>
-        <span className="font-semibold">승인이 필요한 입금내역이 {count}건 있습니다.</span>
-        <span className="mt-0.5 block text-sm text-amber-800">눌러서 내역을 확인하고 승인하세요.</span>
+        <span className="font-semibold">{title}</span>
+        <span className="mt-0.5 block text-sm text-amber-800">{hint}</span>
       </span>
-      <span className="shrink-0 text-sm font-semibold">승인하기 →</span>
+      <span className="shrink-0 text-sm font-semibold">{action}</span>
     </Link>
   );
 }

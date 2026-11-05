@@ -11,7 +11,7 @@ import type { RequestKind } from "@/lib/approvals";
 import { DEPOSIT_TYPES, type Deposit } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
-import { DepositFormDialog, type DepositSuggestions } from "./deposit-form-dialog";
+import { DepositFormDialog } from "./deposit-form-dialog";
 
 type Kind = "전체" | "입금" | "출금";
 
@@ -81,19 +81,11 @@ export function DepositsTable({
   }, [toast]);
 
   const salesOptions = useMemo(() => distinct(deposits, "영업사원"), [deposits]);
-  // 정해진 입금구분 3가지 + 기존 데이터에만 있는 값
+  // 정해진 입금구분 + 기존 데이터에만 있는 값
   const typeOptions = useMemo(() => {
     const extra = distinct(deposits, "입금구분").filter((v) => !(DEPOSIT_TYPES as readonly string[]).includes(v));
     return [...DEPOSIT_TYPES, ...extra];
   }, [deposits]);
-  const suggestions = useMemo<DepositSuggestions>(
-    () => ({
-      입금자: distinct(deposits, "입금자"),
-      입금처: distinct(deposits, "입금처"),
-      현금영수증: distinct(deposits, "현금영수증"),
-    }),
-    [deposits],
-  );
 
   const filtered = useMemo(() => {
     const { 현장번호, 고객명, 영업사원, 입금자, 입금구분, dateFrom, dateTo } = filters;
@@ -224,7 +216,6 @@ export function DepositsTable({
           key={editing?.id ?? "new"}
           sites={sites}
           fixedSalesName={fixedSalesName}
-          suggestions={suggestions}
           editing={editing}
           onClose={() => {
             setFormOpen(false);
@@ -371,7 +362,7 @@ export function DepositsTable({
           {paging.pageItems.map((d) => {
             const isIn = d.입출금 === "입금";
             const isOut = d.입출금 === "출금";
-            const detail = [d.입금자, d.입금처 && `→ ${d.입금처}`, d.입금내용].filter(Boolean).join(" · ");
+            const detail = [d.입금자, d.입금내용].filter(Boolean).join(" · ");
             return (
               <li key={d.id} className="px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
@@ -399,11 +390,7 @@ export function DepositsTable({
                     {[d.영업사원 && `영업 ${d.영업사원}`, detail].filter(Boolean).join(" · ")}
                   </p>
                 )}
-                {(d.현금영수증 || d.비고) && (
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {[d.현금영수증 && `현금영수증: ${d.현금영수증}`, d.비고 && `비고: ${d.비고}`].filter(Boolean).join(" · ")}
-                  </p>
-                )}
+                {d.현금영수증 && <p className="mt-0.5 text-xs text-zinc-500">현금영수증: {d.현금영수증}</p>}
                 <div className="mt-2 flex justify-end">{rowActions(d)}</div>
               </li>
             );
@@ -422,11 +409,8 @@ export function DepositsTable({
               <Th right>금액</Th>
               <Th>입금자</Th>
               <Th>입금내용</Th>
-              <Th>입금처</Th>
               <Th>입금구분</Th>
-              <Th right>계약가</Th>
               <Th>현금영수증</Th>
-              <Th>비고</Th>
               <Th>관리</Th>
             </tr>
           </thead>
@@ -454,13 +438,8 @@ export function DepositsTable({
                   <td className="max-w-72 truncate px-3 py-2 text-zinc-700" title={d.입금내용 ?? ""}>
                     {d.입금내용}
                   </td>
-                  <Td>{d.입금처}</Td>
                   <Td>{d.입금구분}</Td>
-                  <Td right mono>{d.계약가}</Td>
                   <Td>{d.현금영수증}</Td>
-                  <td className="max-w-60 truncate px-3 py-2 text-zinc-700" title={d.비고 ?? ""}>
-                    {d.비고}
-                  </td>
                   <td className="whitespace-nowrap px-3 py-2">{rowActions(d)}</td>
                 </tr>
               );

@@ -21,7 +21,7 @@ export default function ApprovalsPage() {
 
 async function ApprovalsLoader() {
   const session = await requireUser();
-  if (!canApprove(session)) redirect("/"); // CEO만 승인 화면을 볼 수 있다
+  if (!canApprove(session)) redirect("/"); // 승인 권한(CEO·관리자)이 있는 사용자만 볼 수 있다
   const result = await fetchPendingRequests().then(
     (rows) => ({ ok: true as const, rows }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),

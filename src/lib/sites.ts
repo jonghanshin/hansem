@@ -38,8 +38,8 @@ export const COMPUTED_FIELDS = {
   한샘공급가합계: "한샘주문진도정보 · 주문상태 '확정' · 공급가 합계",
   한샘물대: "한샘주문진도정보 · 주문상태 '확정' · 공급가(HS) 합계",
   한샘시공비: "한샘주문진도정보 · 주문상태 '확정' · 공급가(S1) 합계",
-  한샘시공비외: "입금내역 · 입금구분 '시공비' · 입금액 합계",
-  환불금액: "입금내역 · 입금구분 '거래처환불입금' · 입금액 합계",
+  한샘시공비외: "입금내역 · 입금구분 '한샘 외 시공비' · 입금액 합계",
+  환불금액: "입금내역 · 입금구분 '거래처환불' · 입금액 합계",
 } as const satisfies Partial<Record<SiteFieldKey, string>>;
 
 export type ComputedFieldKey = keyof typeof COMPUTED_FIELDS;

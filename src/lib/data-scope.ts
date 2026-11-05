@@ -24,9 +24,9 @@ export function withScopedSalesName<T extends { 영업사원?: string | null }>(
   return scope.salesName == null ? data : { ...data, 영업사원: scope.salesName };
 }
 
-/** 입금 등록 승인 권한이 있는 역할 */
-export const APPROVER_ROLE = "CEO";
+/** 입금 등록·수정·삭제 승인 권한이 있는 역할 (권한.역할 값) */
+export const APPROVER_ROLES: readonly string[] = ["CEO", "관리자"];
 
 export function canApprove(session: Pick<SessionPayload, "role"> | null): boolean {
-  return !!session && session.role.trim() === APPROVER_ROLE;
+  return !!session && APPROVER_ROLES.includes(session.role.trim());
 }

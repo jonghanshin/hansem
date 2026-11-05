@@ -3,34 +3,32 @@
 import { useId, useState, useTransition } from "react";
 
 import { createDepositAction, updateDepositAction } from "@/app/actions";
-import { DEPOSIT_KINDS, DEPOSIT_TYPES, depositToInput, type Deposit, type DepositInput } from "@/lib/deposits";
+import {
+  CASH_RECEIPT_OPTIONS,
+  CATEGORY_RULES,
+  DEPOSIT_CATEGORIES,
+  depositCategoryOf,
+  depositToInput,
+  type Deposit,
+  type DepositCategory,
+  type DepositInput,
+} from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
-
-// 입금/출금 전환 시 입금구분 기본값 (기존 데이터: 입금은 모두 "한샘", 출금은 모두 "시공비")
-const DEFAULT_TYPE: Record<(typeof DEPOSIT_KINDS)[number], string> = { 입금: "한샘", 출금: "시공비" };
 
 function todayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export type DepositSuggestions = {
-  입금자: string[];
-  입금처: string[];
-  현금영수증: string[];
-};
-
 export function DepositFormDialog({
   sites,
   fixedSalesName = null,
-  suggestions,
   editing = null,
   onClose,
   onDone,
 }: {
   sites: SiteSummary[];
   fixedSalesName?: string | null;
-  suggestions: DepositSuggestions;
   /** 값이 있으면 이 입금내역의 수정 요청 화면 */
   editing?: Deposit | null;
   onClose: () => void;
@@ -46,16 +44,12 @@ export function DepositFormDialog({
           현장번호: "",
           고객명: "",
           영업사원: fixedSalesName ?? "",
-          계약가: "",
-          입출금: "입금",
+          구분: "",
           입금액: "",
           날짜: todayIso(),
-          입금자: "",
           입금내용: "",
-          입금처: "",
-          입금구분: DEFAULT_TYPE.입금,
+          거래처: "",
           현금영수증: "",
-          비고: "",
         },
   );
   const [error, setError] = useState<string | null>(null);
@@ -69,27 +63,34 @@ export function DepositFormDialog({
     setValues((v) => ({
       ...v,
       현장번호: value,
-      // 현장정보에 있는 번호면 고객명/영업사원/계약가를 채운다 (이후 직접 수정 가능)
+      // 현장정보에 있는 번호면 고객명/영업사원을 채운다 (이후 직접 수정 가능)
       ...(site && {
         고객명: site.고객명 ?? "",
         영업사원: fixedSalesName ?? site.영업사원 ?? "",
-        계약가: formatMoney(site.계약가),
       }),
     }));
   }
 
-  function onKindChange(kind: (typeof DEPOSIT_KINDS)[number]) {
-    setValues((v) => {
-      const other = kind === "입금" ? DEFAULT_TYPE.출금 : DEFAULT_TYPE.입금;
-      // 입금구분이 비었거나 다른 쪽 기본값이면 새 기본값으로 바꾼다 (직접 입력한 값은 유지)
-      const 입금구분 = !v.입금구분 || v.입금구분 === other ? DEFAULT_TYPE[kind] : v.입금구분;
-      return { ...v, 입출금: kind, 입금구분 };
-    });
-  }
+  // 입금구분 선택에 따라 입출금이 정해진다 (한샘물대·한샘시공비 = 입금, 한샘 외 시공비 = 출금)
+  const rule = (DEPOSIT_CATEGORIES as readonly string[]).includes(values.구분)
+    ? CATEGORY_RULES[values.구분 as DepositCategory]
+    : null;
+  const needsContent = rule?.입금내용 === null; // 한샘 외 시공비, 거래처환불
+  const needsVendor = rule?.입금자 === "vendor"; // 거래처환불
+  // 저장될 입금자 미리보기 (실제 값은 서버에서 정함: 한샘물대·한샘시공비 = 현장정보 고객명, 그 외 = 나비지급)
+  const payerPreview = rule
+    ? rule.입금자 === "customer"
+      ? matchedSite?.고객명 || values.고객명.trim() || "(고객명)"
+      : rule.입금자 === "vendor"
+        ? values.거래처.trim() || "(거래처)"
+        : rule.입금자
+    : null;
+  // 화면 구분에 해당하지 않는 기존 행(예: 거래처환불입금)을 수정할 때 안내
+  const legacy = editing && !depositCategoryOf(editing) ? `${editing.입금구분 ?? ""} / ${editing.입금내용 ?? ""}` : null;
 
-  function formatAmountOnBlur(key: "입금액" | "계약가") {
-    const n = Number(values[key].replace(/[,\s원]/g, ""));
-    if (values[key].trim() && Number.isFinite(n)) set(key, formatMoney(Math.round(n)));
+  function formatAmountOnBlur() {
+    const n = Number(values.입금액.replace(/[,\s원]/g, ""));
+    if (values.입금액.trim() && Number.isFinite(n)) set("입금액", formatMoney(Math.round(n)));
   }
 
   function submit(e: React.FormEvent) {
@@ -101,7 +102,7 @@ export function DepositFormDialog({
         setError(res.error);
         return;
       }
-      const label = `${values.입출금} ${values.입금액}원`;
+      const label = `${values.구분} ${values.입금액}원`;
       onDone(
         isEdit
           ? `${label} 수정을 요청했습니다. 승인 후 반영됩니다`
@@ -168,7 +169,7 @@ export function DepositFormDialog({
                 </datalist>
                 <span className={`mt-1 block text-xs ${matchedSite ? "text-emerald-700" : "text-zinc-400"}`}>
                   {matchedSite
-                    ? "현장정보에서 고객명·영업사원·계약가를 채웠습니다"
+                    ? "현장정보에서 고객명·영업사원을 채웠습니다"
                     : values.현장번호.trim()
                       ? "현장정보에 없는 번호입니다 (그대로 등록 가능)"
                       : " "}
@@ -188,57 +189,76 @@ export function DepositFormDialog({
                   className={`${INPUT}${fixedSalesName ? " bg-zinc-100! text-zinc-600!" : ""}`}
                 />
               </label>
-              <label className="col-span-2">
-                <Label>계약가</Label>
-                <input
-                  value={values.계약가}
-                  onChange={(e) => set("계약가", e.target.value)}
-                  onBlur={() => formatAmountOnBlur("계약가")}
-                  inputMode="numeric"
-                  className={`${INPUT} text-right tabular-nums`}
-                />
-              </label>
             </div>
           </fieldset>
 
           <fieldset>
             <legend className="mb-2 text-xs font-semibold tracking-wide text-zinc-500">입금 정보</legend>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="col-span-2">
-                <Label required>입출금</Label>
-                <div className="flex rounded-md border border-zinc-300 p-0.5" role="radiogroup" aria-label="입출금">
-                  {DEPOSIT_KINDS.map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      role="radio"
-                      aria-checked={values.입출금 === k}
-                      onClick={() => onKindChange(k)}
-                      className={`flex-1 rounded px-3 py-1 text-sm font-medium ${
-                        values.입출금 === k
-                          ? k === "입금"
-                            ? "bg-emerald-600 text-white"
-                            : "bg-red-600 text-white"
-                          : "text-zinc-600 hover:bg-zinc-100"
-                      }`}
-                    >
-                      {k}
-                    </button>
+              <label className="col-span-2">
+                <Label required>입금구분</Label>
+                <select value={values.구분} onChange={(e) => set("구분", e.target.value)} required className={INPUT}>
+                  <option value="" disabled>
+                    선택하세요
+                  </option>
+                  {DEPOSIT_CATEGORIES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
                   ))}
-                </div>
-              </div>
+                </select>
+                <span className="mt-1 block text-xs text-zinc-500">
+                  {rule ? (
+                    <>
+                      입출금:{" "}
+                      <span className={rule.입출금 === "입금" ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>
+                        {rule.입출금}
+                      </span>
+                      {" · "}입금자: <span className="font-semibold text-zinc-700">{payerPreview}</span>
+                    </>
+                  ) : legacy ? (
+                    <span className="text-amber-700">기존 값({legacy})은 선택 목록에 없습니다. 다시 선택하세요</span>
+                  ) : (
+                    " "
+                  )}
+                </span>
+              </label>
               <label className="col-span-2">
                 <Label required>금액</Label>
                 <input
                   value={values.입금액}
                   onChange={(e) => set("입금액", e.target.value)}
-                  onBlur={() => formatAmountOnBlur("입금액")}
+                  onBlur={formatAmountOnBlur}
                   inputMode="numeric"
                   placeholder="0"
                   required
                   className={`${INPUT} text-right tabular-nums`}
                 />
               </label>
+              {needsVendor && (
+                <label className="col-span-2 sm:col-span-4">
+                  <Label required>거래처</Label>
+                  <input
+                    value={values.거래처}
+                    onChange={(e) => set("거래처", e.target.value)}
+                    placeholder="환불해 준 거래처 이름 (입금자로 저장)"
+                    required
+                    className={INPUT}
+                  />
+                </label>
+              )}
+              {needsContent && (
+                <label className="col-span-2 sm:col-span-4">
+                  <Label required>입금내용</Label>
+                  <input
+                    value={values.입금내용}
+                    onChange={(e) => set("입금내용", e.target.value)}
+                    placeholder="예: 도막방수제, 전기작업"
+                    required
+                    className={INPUT}
+                  />
+                </label>
+              )}
               <label className="col-span-2">
                 <Label required>날짜</Label>
                 <input
@@ -249,50 +269,19 @@ export function DepositFormDialog({
                   className={INPUT}
                 />
               </label>
-              <label className="col-span-2">
-                <Label required>입금구분</Label>
-                <select
-                  value={values.입금구분}
-                  onChange={(e) => set("입금구분", e.target.value)}
-                  required
-                  className={INPUT}
-                >
-                  {DEPOSIT_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <SuggestInput
-                label="입금자"
-                listId={`${idp}-payer`}
-                options={suggestions.입금자}
-                value={values.입금자}
-                onChange={(v) => set("입금자", v)}
-              />
-              <SuggestInput
-                label="입금처"
-                listId={`${idp}-dest`}
-                options={suggestions.입금처}
-                value={values.입금처}
-                onChange={(v) => set("입금처", v)}
-              />
-              <label className="col-span-2 sm:col-span-4">
-                <Label>입금내용</Label>
-                <input value={values.입금내용} onChange={(e) => set("입금내용", e.target.value)} className={INPUT} />
-              </label>
-              <SuggestInput
-                label="현금영수증"
-                listId={`${idp}-receipt`}
-                options={suggestions.현금영수증}
-                value={values.현금영수증}
-                onChange={(v) => set("현금영수증", v)}
-              />
-              <label className="col-span-2">
-                <Label>비고</Label>
-                <input value={values.비고} onChange={(e) => set("비고", e.target.value)} className={INPUT} />
-              </label>
+              {editing && (
+                <label className="col-span-2">
+                  <Label>현금영수증</Label>
+                  <select value={values.현금영수증} onChange={(e) => set("현금영수증", e.target.value)} className={INPUT}>
+                    <option value="">기존 값 유지{editing.현금영수증 ? ` (${editing.현금영수증})` : " (없음)"}</option>
+                    {CASH_RECEIPT_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           </fieldset>
         </div>
@@ -335,32 +324,5 @@ function Label({ children, required }: { children: React.ReactNode; required?: b
       {children}
       {required && <span className="ml-0.5 text-red-600">*</span>}
     </span>
-  );
-}
-
-/** 기존 데이터의 값을 자동완성 후보로 보여주는 입력칸 (새 값 직접 입력도 가능) */
-function SuggestInput({
-  label,
-  listId,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  listId: string;
-  options: string[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="col-span-2">
-      <Label>{label}</Label>
-      <input list={listId} value={value} onChange={(e) => onChange(e.target.value)} className={INPUT} />
-      <datalist id={listId}>
-        {options.map((o) => (
-          <option key={o} value={o} />
-        ))}
-      </datalist>
-    </label>
   );
 }

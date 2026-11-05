@@ -24,6 +24,10 @@ import {
   type SiteInput,
 } from "@/lib/sites";
 import {
+  CATEGORY_RULES,
+  CONSTRUCTION_TYPE,
+  depositCategoryOf,
+  REFUND_TYPE,
   normalizeDepositInput,
   pickDepositRow,
   sameDepositRow,
@@ -75,9 +79,9 @@ export async function listDepositsAction(siteNumber: string): Promise<ActionResu
 // CEO가 승인하면 입금내역에 반영된다 (lib/approvals.ts).
 // ---------------------------------------------------------------------------
 
-const TOTALS_TYPES = ["시공비", "거래처환불입금"];
+const TOTALS_TYPES: string[] = [CONSTRUCTION_TYPE, REFUND_TYPE];
 
-/** 시공비/거래처환불입금 내역은 현장정보.한샘시공비외/환불금액 합계에 들어가므로 해당 현장 값을 갱신 */
+/** 한샘 외 시공비/거래처환불입금 내역은 현장정보.한샘시공비외/환불금액 합계에 들어가므로 해당 현장 값을 갱신 */
 async function resyncSitesFor(rows: (DepositRow | null)[]) {
   const numbers = new Set(
     rows.filter((r) => r && r.현장번호 && TOTALS_TYPES.includes(r.입금구분 ?? "")).map((r) => r!.현장번호!),
@@ -101,13 +105,40 @@ async function loadEditableDeposit(id: number, scope: DataScope): Promise<Deposi
   return data as DepositRecord;
 }
 
+/**
+ * 입금자: 입금구분이 한샘물대·한샘시공비면 현장번호로 찾은 현장정보의 고객명
+ * (현장정보에 없거나 고객명이 비어 있으면 입력한 고객명), 한샘 외 시공비는 '나비지급',
+ * 거래처환불은 화면에서 입력한 거래처명(normalizeDepositInput에서 이미 채움).
+ */
+async function resolvePayer(row: DepositRow): Promise<string | null> {
+  const category = depositCategoryOf(row);
+  if (!category) return row.입금자;
+  const rule = CATEGORY_RULES[category];
+  if (rule.입금자 === "vendor") return row.입금자;
+  if (rule.입금자 !== "customer") return rule.입금자;
+  if (row.현장번호) {
+    const { data, error } = await getSupabaseAdmin()
+      .from(SITES_TABLE)
+      .select("고객명")
+      .eq("현장번호", row.현장번호)
+      .not("고객명", "is", null)
+      .order("id", { ascending: false })
+      .limit(1);
+    if (error) throw new Error(`현장정보 조회 실패: ${error.message}`);
+    const name = (data as unknown as { 고객명: string }[])[0]?.고객명;
+    if (name) return name;
+  }
+  return row.고객명;
+}
+
 export async function createDepositAction(raw: Partial<Record<keyof DepositInput, unknown>>): Promise<ActionResult<null>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   const normalized = normalizeDepositInput(raw ?? {});
   if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
   try {
-    await insertRequest("등록", withScopedSalesName(normalized.data, auth.scope), null, auth.uid);
+    const data = withScopedSalesName(normalized.data, auth.scope);
+    await insertRequest("등록", { ...data, 입금자: await resolvePayer(data) }, null, auth.uid);
     refresh(); // CEO 화면의 승인 대기 건수 갱신
     return { ok: true, data: null };
   } catch (e) {
@@ -123,10 +154,19 @@ export async function updateDepositAction(
   if (!auth.ok) return auth;
   const normalized = normalizeDepositInput(raw ?? {});
   if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
-  const data = withScopedSalesName(normalized.data, auth.scope);
+  const input = withScopedSalesName(normalized.data, auth.scope);
   try {
     const target = await loadEditableDeposit(id, auth.scope);
     if (typeof target === "string") return { ok: false, error: target };
+    // 화면에서 받지 않는 계약가·입금처·비고는 기존 값을 유지(현금영수증은 고른 경우에만 변경), 입금자는 입금구분 규칙으로 다시 정함
+    const data: DepositRow = {
+      ...input,
+      계약가: target.계약가,
+      입금처: target.입금처,
+      비고: target.비고,
+      현금영수증: input.현금영수증 ?? target.현금영수증,
+      입금자: await resolvePayer(input),
+    };
     if (sameDepositRow(target, data)) return { ok: false, error: "변경된 내용이 없습니다" };
     await insertRequest("수정", data, id, auth.uid);
     refresh();

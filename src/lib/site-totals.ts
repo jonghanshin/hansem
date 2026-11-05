@@ -10,6 +10,7 @@ import {
   type Site,
   type SiteInput,
 } from "@/lib/sites";
+import { CONSTRUCTION_TYPE, REFUND_TYPE } from "@/lib/deposits";
 import { DEPOSITS_TABLE, getSupabaseAdmin, HANSEM_ORDERS_TABLE, SITES_TABLE } from "@/lib/supabase-admin";
 
 export type SiteTotals = Record<ComputedFieldKey, number>;
@@ -23,13 +24,12 @@ const ORDER_COLUMN: Record<"한샘공급가합계" | "한샘물대" | "한샘시
 
 type SourceRows = {
   orders: Record<string, unknown>[];
-  deposits: Record<string, unknown>[]; // 입금구분 '시공비'
-  refunds: Record<string, unknown>[]; // 입금구분 '거래처환불입금'
+  deposits: Record<string, unknown>[]; // 입금구분 '한샘 외 시공비'
+  refunds: Record<string, unknown>[]; // 입금구분 '거래처환불'
 };
 
-const REFUND_TYPE = "거래처환불입금";
 
-/** 계산 근거 원본 행: 확정된 한샘 주문, 입금구분 '시공비' / '거래처환불입금' 입금내역 */
+/** 계산 근거 원본 행: 확정된 한샘 주문, 입금구분 '한샘 외 시공비' / '거래처환불' 입금내역 */
 async function fetchSourceRows(siteNumber: string): Promise<SourceRows> {
   const sb = getSupabaseAdmin();
   // 컬럼명에 괄호가 있어("공급가(HS)") select 목록에 쓸 수 없으므로 * 로 읽는다.
@@ -40,13 +40,13 @@ async function fetchSourceRows(siteNumber: string): Promise<SourceRows> {
       .eq("계약현장번호", siteNumber)
       .eq("주문상태", "확정")
       .order("주문번호", { ascending: true }),
-    sb.from(DEPOSITS_TABLE).select("*").eq("현장번호", siteNumber).in("입금구분", ["시공비", REFUND_TYPE]),
+    sb.from(DEPOSITS_TABLE).select("*").eq("현장번호", siteNumber).in("입금구분", [CONSTRUCTION_TYPE, REFUND_TYPE]),
   ]);
   if (orders.error) throw new Error(`한샘주문진도정보 조회 실패: ${orders.error.message}`);
   if (deposits.error) throw new Error(`입금내역 조회 실패: ${deposits.error.message}`);
   return {
     orders: orders.data,
-    deposits: deposits.data.filter((r) => r.입금구분 === "시공비"),
+    deposits: deposits.data.filter((r) => r.입금구분 === CONSTRUCTION_TYPE),
     refunds: deposits.data.filter((r) => r.입금구분 === REFUND_TYPE),
   };
 }
