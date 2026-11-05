@@ -18,7 +18,10 @@ export type SessionPayload = {
 
 export class MissingAuthSecretError extends Error {
   constructor() {
-    super(".env.local에 AUTH_SECRET(32자 이상)을 설정한 뒤 개발 서버를 다시 시작하세요.");
+    super(
+      "서버 환경 변수 AUTH_SECRET(32자 이상)이 설정되지 않아 로그인할 수 없습니다. " +
+        "개발: .env.local에 추가 후 서버 재시작 / 운영: 호스팅 환경 변수에 추가 후 다시 배포",
+    );
     this.name = "MissingAuthSecretError";
   }
 }

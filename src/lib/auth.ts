@@ -2,7 +2,7 @@ import "server-only";
 
 import { scrypt as scryptCb, timingSafeEqual, type BinaryLike } from "node:crypto";
 import { promisify } from "node:util";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { canApprove, scopeFor, type DataScope } from "@/lib/data-scope";
@@ -51,6 +51,14 @@ export async function verifyPassword(password: string, stored: string | null): P
 
 // ---------- 세션 ----------
 
+/** 요청이 https로 들어왔는지 (프록시/호스팅 뒤에서는 x-forwarded-proto, 없으면 origin으로 판단) */
+async function isHttpsRequest(): Promise<boolean> {
+  const h = await headers();
+  const forwarded = h.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  if (forwarded) return forwarded === "https";
+  return h.get("origin")?.startsWith("https://") ?? false;
+}
+
 export async function getSession(): Promise<SessionPayload | null> {
   return verifySession((await cookies()).get(SESSION_COOKIE)?.value);
 }
@@ -66,7 +74,8 @@ export async function startSession(user: AuthUser, mustChangePassword: boolean):
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    // https로 접속했을 때만 Secure. (운영 서버를 http로 접속하면 Secure 쿠키는 저장되지 않아 로그인이 풀린다)
+    secure: await isHttpsRequest(),
     path: "/",
     maxAge: SESSION_MAX_AGE_SEC,
   });
