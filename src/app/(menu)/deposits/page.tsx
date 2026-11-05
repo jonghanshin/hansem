@@ -9,7 +9,7 @@ export const metadata = { title: "입금내역 | 현장정보 관리" };
 
 export default function DepositsPage() {
   return (
-    <main className="flex min-h-0 flex-1 flex-col bg-zinc-50">
+    <main className="flex flex-1 flex-col bg-zinc-50 lg:min-h-0">
       <Suspense fallback={<p className="p-6 text-sm text-zinc-500">입금내역을 불러오는 중…</p>}>
         <DepositsLoader />
       </Suspense>

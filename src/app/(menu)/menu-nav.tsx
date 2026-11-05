@@ -8,7 +8,7 @@ import { MENU } from "@/app/menu";
 export function MenuNav() {
   const pathname = usePathname();
   return (
-    <nav className="flex h-11 shrink-0 items-center gap-1 bg-zinc-900 px-3 sm:px-5" aria-label="주 메뉴">
+    <nav className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 bg-zinc-900 px-3 sm:px-5" aria-label="주 메뉴">
       <Link href="/" className="mr-3 rounded px-2 py-1 text-sm font-semibold text-white hover:bg-white/10">
         홈
       </Link>

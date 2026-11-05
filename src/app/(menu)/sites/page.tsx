@@ -8,7 +8,7 @@ export const metadata = { title: "현장정보 | 현장정보 관리" };
 
 export default function SitesPage() {
   return (
-    <main className="flex min-h-0 flex-1 flex-col bg-zinc-50">
+    <main className="flex flex-1 flex-col bg-zinc-50 lg:min-h-0">
       <Suspense fallback={<p className="p-6 text-sm text-zinc-500">현장정보를 불러오는 중…</p>}>
         <SitesLoader />
       </Suspense>

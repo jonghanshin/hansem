@@ -6,6 +6,13 @@ import { pageNumbers } from "@/lib/paging";
 
 export const PAGE_SIZE = 100;
 
+/** 페이지를 바꾼 뒤 목록 맨 위로. 넓은 화면은 목록 영역을, 모바일은 창을 스크롤한다. */
+export function scrollToListTop(el: HTMLElement | null) {
+  if (!el) return;
+  el.scrollTo({ top: 0 });
+  if (el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
+}
+
 /**
  * 목록 페이징. 필터가 바뀌어 전체 페이지 수가 줄면 마지막 페이지로 맞춘다.
  * 필터를 바꿀 때 첫 페이지로 돌아가려면 reset()을 호출한다.

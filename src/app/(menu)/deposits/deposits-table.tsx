@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ExportButton } from "@/app/export-button";
-import { Pagination, usePagination } from "@/app/pagination";
+import { Pagination, scrollToListTop, usePagination } from "@/app/pagination";
 import { depositExportTable } from "@/lib/export-rows";
 
 import { DEPOSIT_TYPES, sortDepositsDesc, type Deposit } from "@/lib/deposits";
@@ -93,8 +93,11 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
   const listRef = useRef<HTMLDivElement>(null);
   function goToPage(page: number) {
     paging.setPage(page);
-    listRef.current?.scrollTo({ top: 0 });
+    scrollToListTop(listRef.current);
   }
+  // 모바일에서는 검색 조건을 접어 두고 버튼으로 연다
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
 
   // 검색 조건이 바뀌면 첫 페이지로
   const setFilter = (key: keyof Filters, value: string) => {
@@ -108,7 +111,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
   const outTotal = sum(filtered.filter((d) => d.입출금 === "출금"));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-1 flex-col lg:min-h-0">
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold text-zinc-900">
           입금내역{" "}
@@ -169,11 +172,32 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
         </div>
       )}
 
-      {/* 항목별 검색 */}
+      {/* 항목별 검색 (모바일은 접기/펼치기) */}
+      <div className="shrink-0 border-b border-zinc-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setFiltersOpen((o) => !o)}
+        aria-expanded={filtersOpen}
+        aria-controls="deposit-filters"
+        className="flex w-full items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-700 lg:hidden"
+      >
+        <span>
+          검색 조건
+          {activeFilterCount > 0 && (
+            <span className="ml-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+              {activeFilterCount}
+            </span>
+          )}
+        </span>
+        <span aria-hidden className="text-zinc-400">
+          {filtersOpen ? "▲" : "▼"}
+        </span>
+      </button>
       <form
+        id="deposit-filters"
         role="search"
         onSubmit={(e) => e.preventDefault()}
-        className="flex shrink-0 flex-wrap items-end gap-x-3 gap-y-2 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6"
+        className={`${filtersOpen ? "grid" : "hidden"} grid-cols-2 items-end gap-x-3 gap-y-2 px-4 pb-3 sm:px-6 lg:flex lg:flex-wrap lg:py-3`}
       >
         <Field label="현장번호">
           <input
@@ -181,7 +205,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
             value={filters.현장번호}
             onChange={(e) => setFilter("현장번호", e.target.value)}
             placeholder="예: 261022C"
-            className={`${INPUT} w-40`}
+            className={`${INPUT} w-full lg:w-40`}
           />
         </Field>
         <Field label="고객명">
@@ -190,11 +214,11 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
             value={filters.고객명}
             onChange={(e) => setFilter("고객명", e.target.value)}
             placeholder="이름 일부"
-            className={`${INPUT} w-32`}
+            className={`${INPUT} w-full lg:w-32`}
           />
         </Field>
         <Field label="영업사원">
-          <select value={filters.영업사원} onChange={(e) => setFilter("영업사원", e.target.value)} className={`${INPUT} w-32`}>
+          <select value={filters.영업사원} onChange={(e) => setFilter("영업사원", e.target.value)} className={`${INPUT} w-full lg:w-32`}>
             <option value="">전체</option>
             {salesOptions.map((v) => (
               <option key={v} value={v}>
@@ -209,11 +233,11 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
             value={filters.입금자}
             onChange={(e) => setFilter("입금자", e.target.value)}
             placeholder="이름 일부"
-            className={`${INPUT} w-32`}
+            className={`${INPUT} w-full lg:w-32`}
           />
         </Field>
         <Field label="입금구분">
-          <select value={filters.입금구분} onChange={(e) => setFilter("입금구분", e.target.value)} className={`${INPUT} w-32`}>
+          <select value={filters.입금구분} onChange={(e) => setFilter("입금구분", e.target.value)} className={`${INPUT} w-full lg:w-32`}>
             <option value="">전체</option>
             {typeOptions.map((v) => (
               <option key={v} value={v}>
@@ -222,7 +246,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
             ))}
           </select>
         </Field>
-        <Field label="날짜">
+        <Field label="날짜" className="col-span-2">
           <div className="flex items-center gap-1.5">
             <input
               type="date"
@@ -230,7 +254,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
               max={filters.dateTo || undefined}
               onChange={(e) => setFilter("dateFrom", e.target.value)}
               aria-label="시작일"
-              className={`${INPUT} w-36`}
+              className={`${INPUT} min-w-0 flex-1 lg:w-36 lg:flex-none`}
             />
             <span className="text-sm text-zinc-400">~</span>
             <input
@@ -239,7 +263,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
               min={filters.dateFrom || undefined}
               onChange={(e) => setFilter("dateTo", e.target.value)}
               aria-label="종료일"
-              className={`${INPUT} w-36`}
+              className={`${INPUT} min-w-0 flex-1 lg:w-36 lg:flex-none`}
             />
           </div>
         </Field>
@@ -251,12 +275,13 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
             setKind("전체");
           }}
           disabled={!isFiltered}
-          className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
+          className="col-span-2 rounded-md border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent lg:border-0"
         >
           초기화
         </button>
-        {dateRangeInvalid && <p className="w-full text-xs text-red-600">시작일이 종료일보다 늦습니다.</p>}
+        {dateRangeInvalid && <p className="col-span-2 w-full text-xs text-red-600">시작일이 종료일보다 늦습니다.</p>}
       </form>
+      </div>
 
       <div className="grid shrink-0 grid-cols-3 gap-px border-b border-zinc-200 bg-zinc-200">
         <Stat label="입금 합계" value={inTotal} className="text-emerald-700" />
@@ -264,8 +289,53 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
         <Stat label="입금 − 출금" value={inTotal - outTotal} className="text-zinc-900" />
       </div>
 
-      <div ref={listRef} className="min-h-0 flex-1 overflow-auto bg-white">
-        <table className="w-full text-left text-sm">
+      <div ref={listRef} className="flex-1 scroll-mt-11 bg-white lg:min-h-0 lg:overflow-auto">
+        {/* 모바일: 카드 목록 */}
+        <ul className="divide-y divide-zinc-100 lg:hidden">
+          {paging.pageItems.map((d, i) => {
+            const isIn = d.입출금 === "입금";
+            const isOut = d.입출금 === "출금";
+            const detail = [d.입금자, d.입금처 && `→ ${d.입금처}`, d.입금내용].filter(Boolean).join(" · ");
+            return (
+              // 입금내역 테이블에는 고유 id가 없어 순번을 key로 사용
+              <li key={i} className="px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {d.입출금 && <span className={`shrink-0 ${kindBadge(d.입출금)}`}>{d.입출금}</span>}
+                    {d.입금구분 && <span className="truncate text-xs text-zinc-500">{d.입금구분}</span>}
+                  </div>
+                  <span
+                    className={`shrink-0 text-base font-semibold tabular-nums ${
+                      isIn ? "text-emerald-700" : isOut ? "text-red-600" : "text-zinc-900"
+                    }`}
+                  >
+                    {d.amount !== null ? formatMoney(d.amount) : d.입금액}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between gap-3 text-sm">
+                  <p className="min-w-0 truncate">
+                    <span className="font-medium text-zinc-900">{d.고객명 ?? "—"}</span>{" "}
+                    <span className="text-xs text-zinc-500 tabular-nums">{d.현장번호}</span>
+                  </p>
+                  <span className="shrink-0 text-xs text-zinc-500 tabular-nums">{d.dateIso ?? d.날짜}</span>
+                </div>
+                {(detail || d.영업사원) && (
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {[d.영업사원 && `영업 ${d.영업사원}`, detail].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+                {(d.현금영수증 || d.비고) && (
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {[d.현금영수증 && `현금영수증: ${d.현금영수증}`, d.비고 && `비고: ${d.비고}`].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* 넓은 화면: 표 */}
+        <table className="hidden w-full text-left text-sm lg:table">
           <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 shadow-[inset_0_-1px_0] shadow-zinc-200">
             <tr>
               <Th>날짜</Th>
@@ -295,15 +365,7 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
                   <Td strong>{d.고객명}</Td>
                   <Td>{d.영업사원}</Td>
                   <Td>
-                    {d.입출금 && (
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-xs font-medium ${
-                          isIn ? "bg-emerald-50 text-emerald-700" : isOut ? "bg-red-50 text-red-700" : "bg-zinc-100 text-zinc-600"
-                        }`}
-                      >
-                        {d.입출금}
-                      </span>
-                    )}
+                    {d.입출금 && <span className={kindBadge(d.입출금)}>{d.입출금}</span>}
                   </Td>
                   <td
                     className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${
@@ -342,9 +404,15 @@ export function DepositsTable({ initialDeposits, sites }: { initialDeposits: Dep
 const INPUT =
   "rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function kindBadge(kind: string) {
+  const color =
+    kind === "입금" ? "bg-emerald-50 text-emerald-700" : kind === "출금" ? "bg-red-50 text-red-700" : "bg-zinc-100 text-zinc-600";
+  return `rounded px-1.5 py-0.5 text-xs font-medium ${color}`;
+}
+
+function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className={`flex min-w-0 flex-col gap-1 ${className ?? ""}`}>
       <span className="text-xs font-medium text-zinc-600">{label}</span>
       {children}
     </label>
@@ -357,9 +425,9 @@ function sum(rows: Deposit[]) {
 
 function Stat({ label, value, className }: { label: string; value: number; className: string }) {
   return (
-    <div className="bg-white px-4 py-3 sm:px-6">
+    <div className="min-w-0 bg-white px-3 py-2 sm:px-6 sm:py-3">
       <p className="text-xs text-zinc-500">{label}</p>
-      <p className={`mt-0.5 text-base font-semibold tabular-nums ${className}`}>{formatMoney(value)}</p>
+      <p className={`mt-0.5 truncate text-sm font-semibold tabular-nums sm:text-base ${className}`}>{formatMoney(value)}</p>
     </div>
   );
 }

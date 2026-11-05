@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ExcelUploadDialog } from "@/app/excel-upload-dialog";
 import { ExportButton } from "@/app/export-button";
 import { siteExportTable } from "@/lib/export-rows";
-import { Pagination, usePagination } from "@/app/pagination";
+import { Pagination, scrollToListTop, usePagination } from "@/app/pagination";
 import { SiteForm } from "@/app/site-form";
 import { formatMoney, formatPhone, type Site } from "@/lib/sites";
 
@@ -58,14 +58,14 @@ export function SitesManager({ initialSites }: { initialSites: Site[] }) {
   const listRef = useRef<HTMLDivElement>(null);
   function goToPage(page: number) {
     paging.setPage(page);
-    listRef.current?.scrollTo({ top: 0 });
+    scrollToListTop(listRef.current);
   }
 
   const selected = panel.kind === "edit" ? (sites.find((s) => s.id === panel.id) ?? null) : null;
   const panelOpen = panel.kind === "create" || selected !== null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-1 flex-col lg:min-h-0">
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold text-zinc-900">
           현장정보 <span className="ml-1 text-sm font-normal text-zinc-500">{sites.length}건</span>
@@ -79,7 +79,7 @@ export function SitesManager({ initialSites }: { initialSites: Site[] }) {
               paging.reset();
             }}
             placeholder="현장번호, 고객명, 주소, 영업사원 검색"
-            className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 sm:w-72 sm:flex-none"
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 sm:w-72 sm:flex-none"
           />
           <ExportButton count={filtered.length} fileBase="현장정보" build={() => siteExportTable(filtered)} />
           <button
@@ -99,11 +99,44 @@ export function SitesManager({ initialSites }: { initialSites: Site[] }) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex flex-1 lg:min-h-0">
         {/* 목록 */}
         <div className="flex min-w-0 flex-1 flex-col bg-white">
-        <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full text-left text-sm">
+        <div ref={listRef} className="flex-1 scroll-mt-11 lg:min-h-0 lg:overflow-auto">
+          {/* 모바일: 카드 목록 */}
+          <ul className="divide-y divide-zinc-100 lg:hidden">
+            {paging.pageItems.map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => openPanel({ kind: "edit", id: s.id })}
+                  className="block w-full px-4 py-3 text-left active:bg-zinc-100"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <StatusBadge done={!!s.완료일} />
+                      <span className="truncate font-medium text-zinc-900">{s.고객명 || "(고객명 없음)"}</span>
+                    </div>
+                    <span className="shrink-0 text-xs text-zinc-500 tabular-nums">{s.현장번호}</span>
+                  </div>
+                  {s.현장주소 && <p className="mt-1 truncate text-sm text-zinc-600">{s.현장주소}</p>}
+                  <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-zinc-500">
+                    <span className="min-w-0 truncate">
+                      {[s.영업사원, s.공사품목, s.계약일 && `계약 ${s.계약일}`, formatPhone(s.고객전화번호)]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                    {s.계약가 !== null && (
+                      <span className="shrink-0 text-sm font-medium text-zinc-900 tabular-nums">{formatMoney(s.계약가)}</span>
+                    )}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {/* 넓은 화면: 표 */}
+          <table className="hidden w-full text-left text-sm lg:table">
             <thead className="sticky top-0 z-10 bg-zinc-50 text-xs text-zinc-600 shadow-[inset_0_-1px_0] shadow-zinc-200">
               <tr>
                 <Th>상태</Th>
@@ -140,11 +173,7 @@ export function SitesManager({ initialSites }: { initialSites: Site[] }) {
                     }`}
                   >
                     <Td>
-                      {s.완료일 ? (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">완료</span>
-                      ) : (
-                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">진행</span>
-                      )}
+                      <StatusBadge done={!!s.완료일} />
                     </Td>
                     <Td mono>{s.현장번호}</Td>
                     <Td strong>{s.고객명}</Td>
@@ -220,6 +249,14 @@ export function SitesManager({ initialSites }: { initialSites: Site[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+function StatusBadge({ done }: { done: boolean }) {
+  return done ? (
+    <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">완료</span>
+  ) : (
+    <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">진행</span>
   );
 }
 
