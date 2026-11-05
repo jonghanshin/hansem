@@ -7,6 +7,8 @@ export const DEPOSITS_TABLE = "입금내역";
 export const HANSEM_ORDERS_TABLE = "한샘주문진도정보";
 export const AUTH_TABLE = "권한";
 export const PENDING_DEPOSITS_TABLE = "승인필요입금내역";
+export const BOARD_TABLE = "게시판";
+export const BOARD_FILES_TABLE = "게시판첨부";
 
 export class MissingSupabaseConfigError extends Error {
   constructor() {

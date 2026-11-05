@@ -11,6 +11,7 @@ import {
   isComputedField,
   SITE_FIELDS,
   type ComputedFieldKey,
+  type Salesperson,
   type Site,
   type SiteFieldKey,
 } from "@/lib/sites";
@@ -40,6 +41,10 @@ const SECTIONS: { title: string; keys: SiteFieldKey[] }[] = [
 ];
 
 const REQUIRED: ReadonlySet<SiteFieldKey> = new Set(["현장번호"]);
+/** 새 현장에서 추가로 필수인 항목 */
+const REQUIRED_NEW: ReadonlySet<SiteFieldKey> = new Set(["현장번호", "고객명", "영업사원"]);
+/** 새 현장에서 로그인한 영업사원으로 자동 입력되고 수정할 수 없는 항목 */
+const AUTO_SALES_KEYS: ReadonlySet<SiteFieldKey> = new Set(["영업사원", "영업사원ID"]);
 
 const FIELD_TYPE = Object.fromEntries(SITE_FIELDS.map((f) => [f.key, f.type])) as Record<
   SiteFieldKey,
@@ -67,8 +72,11 @@ export function SiteForm({
   onClose,
   onDirtyChange,
   fixedSalesName = null,
+  newSiteSales = null,
 }: {
   site: Site | null; // null이면 신규 입력
+  /** 새 현장에 자동으로 넣을 로그인한 영업사원 (권한 테이블에서 영업사원ID로 찾은 값) */
+  newSiteSales?: Salesperson | null;
   /** 값이 있으면(RD 로그인) 영업사원을 이 이름으로 고정하고 수정할 수 없게 한다 */
   fixedSalesName?: string | null;
   onSaved: (site: Site, created: boolean) => void;
@@ -79,8 +87,12 @@ export function SiteForm({
   const initial = useMemo(() => {
     const v = toFormValues(site);
     if (fixedSalesName) v.영업사원 = fixedSalesName;
+    if (site === null && newSiteSales) {
+      v.영업사원 = newSiteSales.영업사원 ?? "";
+      v.영업사원ID = newSiteSales.영업사원ID;
+    }
     return v;
-  }, [site, fixedSalesName]);
+  }, [site, fixedSalesName, newSiteSales]);
   const [values, setValues] = useState<FormValues>(initial);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -280,19 +292,28 @@ export function SiteForm({
                 }
                 const type = FIELD_TYPE[key];
                 const wide = key === "현장주소";
-                const locked = key === "영업사원" && !!fixedSalesName;
+                const autoSales = isNew && AUTO_SALES_KEYS.has(key);
+                const locked = autoSales || (key === "영업사원" && !!fixedSalesName);
+                const required = (isNew ? REQUIRED_NEW : REQUIRED).has(key);
                 return (
                   <label key={key} className={wide ? "col-span-2" : undefined}>
                     <span className="mb-1 block text-xs font-medium text-zinc-700">
                       {key}
-                      {REQUIRED.has(key) && <span className="ml-0.5 text-red-600">*</span>}
+                      {required && <span className="ml-0.5 text-red-600">*</span>}
                     </span>
                     <input
                       name={key}
                       value={values[key]}
                       onChange={(e) => setField(key, e.target.value)}
                       readOnly={locked}
-                      title={locked ? "영업사원은 로그인한 본인으로 고정됩니다" : undefined}
+                      required={required && !locked}
+                      title={
+                        autoSales
+                          ? "로그인한 영업사원ID로 권한 정보에서 자동 입력됩니다"
+                          : locked
+                            ? "영업사원은 로그인한 본인으로 고정됩니다"
+                            : undefined
+                      }
                       onBlur={
                         type === "money"
                           ? () => {

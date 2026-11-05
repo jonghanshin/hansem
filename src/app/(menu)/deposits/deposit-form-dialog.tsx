@@ -2,7 +2,8 @@
 
 import { useId, useState, useTransition } from "react";
 
-import { createDepositAction, updateDepositAction } from "@/app/actions";
+import { createDepositAction, resubmitRequestAction, updateDepositAction } from "@/app/actions";
+import type { RequestKind } from "@/lib/approvals";
 import {
   CASH_RECEIPT_OPTIONS,
   CATEGORY_RULES,
@@ -23,20 +24,29 @@ function todayIso() {
 export function DepositFormDialog({
   sites,
   fixedSalesName = null,
+  loginName = null,
+  isAdmin = false,
   editing = null,
+  resubmit = null,
   onClose,
   onDone,
 }: {
   sites: SiteSummary[];
   fixedSalesName?: string | null;
+  /** 로그인한 사용자 이름: 현장정보에서 이 이름이 영업사원인 현장번호만 선택 목록에 보여준다 */
+  loginName?: string | null;
+  /** CEO·관리자: 진행 중인 전체 현장에서 선택 */
+  isAdmin?: boolean;
   /** 값이 있으면 이 입금내역의 수정 요청 화면 */
   editing?: Deposit | null;
+  /** 반려된 승인 요청을 고쳐 다시 요청하는 화면 (editing에는 그 요청 내용을 넘긴다) */
+  resubmit?: { requestId: number; kind: RequestKind; comment: string | null } | null;
   onClose: () => void;
   /** 승인 요청 완료 (안내 문구 전달) */
   onDone: (message: string) => void;
 }) {
   const idp = useId();
-  const isEdit = editing !== null;
+  const isEdit = editing !== null && (!resubmit || resubmit.kind === "수정");
   const [values, setValues] = useState<DepositInput>(() =>
     editing
       ? { ...depositToInput(editing), ...(fixedSalesName && { 영업사원: fixedSalesName }) }
@@ -57,6 +67,20 @@ export function DepositFormDialog({
 
   const set = (key: keyof DepositInput, value: string) => setValues((v) => ({ ...v, [key]: value }));
   const matchedSite = sites.find((s) => s.현장번호 === values.현장번호.trim()) ?? null;
+  // 로그인한 영업사원의 현장 (현장정보.영업사원 = 로그인 이름). 없으면(예: CEO·관리자) 전체 목록에서 입력
+  const me = loginName?.trim();
+  // 관리자는 진행 중(완료일 없음)인 전체 현장, 그 외는 본인 현장
+  const mySites = isAdmin
+    ? sites.filter((s) => s.현장번호 && !s.완료일)
+    : me
+      ? sites.filter((s) => s.현장번호 && s.영업사원?.trim() === me)
+      : [];
+  const selectMode = mySites.length > 0;
+  // 수정 화면에서 기존 현장번호가 본인 목록에 없으면 선택지에 그대로 남겨 둔다
+  const keepCurrent =
+    selectMode && values.현장번호.trim() && !mySites.some((s) => s.현장번호 === values.현장번호.trim())
+      ? values.현장번호
+      : null;
 
   function onSiteNumberChange(value: string) {
     const site = sites.find((s) => s.현장번호 === value.trim());
@@ -97,14 +121,20 @@ export function DepositFormDialog({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = editing ? await updateDepositAction(editing.id, values) : await createDepositAction(values);
+      const res = resubmit
+        ? await resubmitRequestAction(resubmit.requestId, values)
+        : editing
+          ? await updateDepositAction(editing.id, values)
+          : await createDepositAction(values);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       const label = `${values.구분} ${values.입금액}원`;
       onDone(
-        isEdit
+        resubmit
+          ? `${label} 다시 승인 요청했습니다`
+          : isEdit
           ? `${label} 수정을 요청했습니다. 승인 후 반영됩니다`
           : `${label}을 승인 요청했습니다. 승인 후 입금내역에 반영됩니다`,
       );
@@ -126,10 +156,14 @@ export function DepositFormDialog({
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
           <div>
             <h2 id={`${idp}-title`} className="text-lg font-semibold text-zinc-900">
-              {isEdit ? "입금 수정" : "입금 등록"}
+              {resubmit ? `반려된 ${resubmit.kind} 요청 다시 요청` : isEdit ? "입금 수정" : "입금 등록"}
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              {isEdit ? "수정 내용은 CEO 승인 후 입금내역에 반영됩니다." : "등록한 내역은 CEO 승인 후 입금내역에 반영됩니다."}
+              {resubmit
+                ? "관리자 의견을 반영해 고친 뒤 다시 승인 요청하세요."
+                : isEdit
+                  ? "수정 내용은 CEO 승인 후 입금내역에 반영됩니다."
+                  : "등록한 내역은 CEO 승인 후 입금내역에 반영됩니다."}
             </p>
           </div>
           <button
@@ -146,27 +180,55 @@ export function DepositFormDialog({
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
+          {resubmit?.comment && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <p className="text-xs font-semibold">관리자 의견 (반려 사유)</p>
+              <p className="mt-0.5 whitespace-pre-line">{resubmit.comment}</p>
+            </div>
+          )}
           <fieldset>
             <legend className="mb-2 text-xs font-semibold tracking-wide text-zinc-500">현장</legend>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <label className="col-span-2">
                 <Label required>현장번호</Label>
-                <input
-                  list={`${idp}-sites`}
-                  value={values.현장번호}
-                  onChange={(e) => onSiteNumberChange(e.target.value)}
-                  placeholder="번호 입력 또는 목록에서 선택"
-                  required
-                  autoFocus
-                  className={INPUT}
-                />
-                <datalist id={`${idp}-sites`}>
-                  {sites.map((s) => (
-                    <option key={s.현장번호} value={s.현장번호 ?? ""}>
-                      {[s.고객명, s.영업사원].filter(Boolean).join(" · ")}
+                {selectMode ? (
+                  <select
+                    value={values.현장번호}
+                    onChange={(e) => onSiteNumberChange(e.target.value)}
+                    required
+                    autoFocus
+                    className={INPUT}
+                  >
+                    <option value="" disabled>
+                      {isAdmin ? `진행 중인 현장 ${mySites.length}건 중 선택` : `${me}님의 현장 ${mySites.length}건 중 선택`}
                     </option>
-                  ))}
-                </datalist>
+                    {keepCurrent && <option value={keepCurrent}>{keepCurrent} (현재 값)</option>}
+                    {mySites.map((s) => (
+                      <option key={s.현장번호} value={s.현장번호 ?? ""}>
+                        {[s.현장번호, s.고객명, isAdmin && s.영업사원].filter(Boolean).join(" · ")}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <input
+                      list={`${idp}-sites`}
+                      value={values.현장번호}
+                      onChange={(e) => onSiteNumberChange(e.target.value)}
+                      placeholder="번호 입력 또는 목록에서 선택"
+                      required
+                      autoFocus
+                      className={INPUT}
+                    />
+                    <datalist id={`${idp}-sites`}>
+                      {sites.map((s) => (
+                        <option key={s.현장번호} value={s.현장번호 ?? ""}>
+                          {[s.고객명, s.영업사원].filter(Boolean).join(" · ")}
+                        </option>
+                      ))}
+                    </datalist>
+                  </>
+                )}
                 <span className={`mt-1 block text-xs ${matchedSite ? "text-emerald-700" : "text-zinc-400"}`}>
                   {matchedSite
                     ? "현장정보에서 고객명·영업사원을 채웠습니다"
@@ -269,7 +331,7 @@ export function DepositFormDialog({
                   className={INPUT}
                 />
               </label>
-              {editing && (
+              {isEdit && editing && (
                 <label className="col-span-2">
                   <Label>현금영수증</Label>
                   <select value={values.현금영수증} onChange={(e) => set("현금영수증", e.target.value)} className={INPUT}>
@@ -306,7 +368,7 @@ export function DepositFormDialog({
               disabled={pending}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
-              {pending ? "요청 중…" : "승인 요청"}
+              {pending ? "요청 중…" : resubmit ? "다시 승인 요청" : "승인 요청"}
             </button>
           </div>
         </div>

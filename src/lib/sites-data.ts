@@ -62,7 +62,7 @@ export async function fetchSiteSummaries(scope: DataScope): Promise<SiteSummary[
       .order("id", { ascending: false })
       .range(from, to),
   );
-  return rows.map(({ 현장번호, 고객명, 영업사원, 계약가 }) => ({ 현장번호, 고객명, 영업사원, 계약가 }));
+  return rows.map(({ 현장번호, 고객명, 영업사원, 계약가, 완료일 }) => ({ 현장번호, 고객명, 영업사원, 계약가, 완료일 }));
 }
 
 /** 범위 내에 해당 현장번호의 현장이 있는지 (다른 영업사원 현장의 근거 내역 조회 차단용) */

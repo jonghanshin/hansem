@@ -1,13 +1,13 @@
 import Link from "next/link";
 
-import { countPendingRequests } from "@/lib/approvals";
+import { countPendingRequests, countRejectedRequests } from "@/lib/approvals";
 import { getSession } from "@/lib/auth";
 import { canApprove, RESTRICTED_ROLE } from "@/lib/data-scope";
 
 /**
  * 승인 대기 알림. 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
  * - 승인 권한자(CEO·관리자): 전체 승인 대기 건수 → 승인 화면(/approvals)
- * - RD: 본인이 요청한 승인 대기 건수 → 내 요청 화면(/my-requests)
+ * - RD: 본인이 요청한 승인 대기 건수 + 반려 건수 → 내 요청 화면(/my-requests)
  */
 export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "banner" }) {
   const session = await getSession();
@@ -26,23 +26,46 @@ export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "ba
   }
 
   if (session.role.trim() === RESTRICTED_ROLE) {
-    const count = await countPendingRequests(session.uid).catch(() => 0);
-    // 메뉴의 '내 요청'은 항상 보여 주고, 첫 화면 배너는 대기 건이 있을 때만
+    const [count, rejected] = await Promise.all([
+      countPendingRequests(session.uid).catch(() => 0),
+      countRejectedRequests(session.uid).catch(() => 0),
+    ]);
+    // 메뉴의 '내 요청'은 항상 보여 주고, 첫 화면 배너는 대기·반려 건이 있을 때만
     if (variant === "nav") {
       return (
-        <NavLink href="/my-requests" highlight={count > 0} count={count}>
-          내 요청
-        </NavLink>
+        <>
+          {rejected > 0 && (
+            <NavLink href="/my-requests" highlight tone="red" count={rejected}>
+              반려
+            </NavLink>
+          )}
+          <NavLink href="/my-requests" highlight={count > 0} count={count}>
+            내 요청
+          </NavLink>
+        </>
       );
     }
-    if (count === 0) return null;
+    if (count === 0 && rejected === 0) return null;
     return (
-      <Banner
-        href="/my-requests"
-        title={`승인을 기다리는 내 요청이 ${count}건 있습니다.`}
-        hint="눌러서 승인 대기 중인 내역을 확인하세요."
-        action="내 요청 보기 →"
-      />
+      <>
+        {rejected > 0 && (
+          <Banner
+            href="/my-requests"
+            tone="red"
+            title={`반려된 내 요청이 ${rejected}건 있습니다.`}
+            hint="관리자 의견을 확인하고 고쳐서 다시 요청하세요."
+            action="반려 내역 보기 →"
+          />
+        )}
+        {count > 0 && (
+          <Banner
+            href="/my-requests"
+            title={`승인을 기다리는 내 요청이 ${count}건 있습니다.`}
+            hint="눌러서 승인 대기 중인 내역을 확인하세요."
+            action="내 요청 보기 →"
+          />
+        )}
+      </>
     );
   }
 
@@ -52,11 +75,13 @@ export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "ba
 function NavLink({
   href,
   highlight,
+  tone = "amber",
   count,
   children,
 }: {
   href: string;
   highlight: boolean;
+  tone?: "amber" | "red";
   count: number;
   children: React.ReactNode;
 }) {
@@ -64,7 +89,11 @@ function NavLink({
     <Link
       href={href}
       className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-sm font-semibold ${
-        highlight ? "bg-amber-400 text-zinc-900 hover:bg-amber-300" : "text-zinc-300 hover:bg-white/10 hover:text-white"
+        highlight
+          ? tone === "red"
+            ? "bg-red-500 text-white hover:bg-red-400"
+            : "bg-amber-400 text-zinc-900 hover:bg-amber-300"
+          : "text-zinc-300 hover:bg-white/10 hover:text-white"
       }`}
     >
       {children}
@@ -73,15 +102,31 @@ function NavLink({
   );
 }
 
-function Banner({ href, title, hint, action }: { href: string; title: string; hint: string; action: string }) {
+function Banner({
+  href,
+  title,
+  hint,
+  action,
+  tone = "amber",
+}: {
+  href: string;
+  title: string;
+  hint: string;
+  action: string;
+  tone?: "amber" | "red";
+}) {
   return (
     <Link
       href={href}
-      className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-amber-900 shadow-sm hover:border-amber-400 hover:bg-amber-100"
+      className={`mt-6 flex items-center justify-between gap-3 rounded-xl border px-5 py-4 shadow-sm ${
+        tone === "red"
+          ? "border-red-300 bg-red-50 text-red-900 hover:border-red-400 hover:bg-red-100"
+          : "border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-400 hover:bg-amber-100"
+      }`}
     >
       <span>
         <span className="font-semibold">{title}</span>
-        <span className="mt-0.5 block text-sm text-amber-800">{hint}</span>
+        <span className={`mt-0.5 block text-sm ${tone === "red" ? "text-red-800" : "text-amber-800"}`}>{hint}</span>
       </span>
       <span className="shrink-0 text-sm font-semibold">{action}</span>
     </Link>

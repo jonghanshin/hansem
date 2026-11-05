@@ -6,11 +6,14 @@ import { refresh } from "next/cache";
 import {
   approveRequest,
   hasPendingRequestFor,
+  deleteRejectedRequest,
   insertRequest,
+  loadRejectedRequest,
   rejectRequest,
+  resubmitRequest,
   type RequestKind,
 } from "@/lib/approvals";
-import { authorizeAction } from "@/lib/auth";
+import { authorizeAction, lookupSalesperson } from "@/lib/auth";
 import { applyScope, withScopedSalesName, type DataScope } from "@/lib/data-scope";
 import { fetchComputedSources, syncSiteTotals } from "@/lib/site-totals";
 import {
@@ -179,11 +182,16 @@ export async function updateDepositAction(
 export async function deleteDepositAction(id: number): Promise<ActionResult<null>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
+  // 입금내역 삭제는 관리자(CEO·관리자)만. 승인 권한자이므로 승인 요청 없이 바로 삭제한다
+  if (!auth.canApprove) return { ok: false, error: "삭제 권한이 없습니다" };
   try {
     const target = await loadEditableDeposit(id, auth.scope);
     if (typeof target === "string") return { ok: false, error: target };
-    // 승인 화면에서 무엇을 지우는지 보이도록 삭제 당시 내용을 함께 저장
-    await insertRequest("삭제", target, id, auth.uid);
+    const { data, error } = await getSupabaseAdmin().from(DEPOSITS_TABLE).delete().eq("id", id).select("id");
+    if (error) return { ok: false, error: `입금내역 삭제 실패: ${error.message}` };
+    if (!data?.length) return { ok: false, error: "해당 입금내역을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    // 한샘 외 시공비/거래처환불 내역이면 현장정보 합계 갱신
+    await resyncSitesFor([pickDepositRow(target)]);
     refresh();
     return { ok: true, data: null };
   } catch (e) {
@@ -209,15 +217,91 @@ export async function approveRequestAction(requestId: number): Promise<ActionRes
   }
 }
 
-/** CEO 전용: 승인 대기 요청을 반려한다 (입금내역은 바뀌지 않음) */
-export async function rejectRequestAction(requestId: number): Promise<ActionResult<null>> {
+const MAX_COMMENT_LENGTH = 500;
+
+/** CEO 전용: 승인 대기 요청을 반려한다 (입금내역은 바뀌지 않음). 반려 의견은 관리자의견에 저장 */
+export async function rejectRequestAction(requestId: number, comment: unknown): Promise<ActionResult<null>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   if (!auth.canApprove) return { ok: false, error: "승인 권한이 없습니다" };
   if (!Number.isSafeInteger(requestId) || requestId <= 0) return { ok: false, error: "잘못된 요청입니다" };
+  const text = typeof comment === "string" ? comment.trim() : "";
+  if (!text) return { ok: false, error: "반려 의견을 입력해 주세요" };
+  if (text.length > MAX_COMMENT_LENGTH) return { ok: false, error: `반려 의견은 ${MAX_COMMENT_LENGTH}자 이내로 입력해 주세요` };
   try {
-    if (!(await rejectRequest(requestId))) return { ok: false, error: "이미 처리되었거나 찾을 수 없는 요청입니다" };
+    if (!(await rejectRequest(requestId, text))) return { ok: false, error: "이미 처리되었거나 찾을 수 없는 요청입니다" };
     refresh();
+    return { ok: true, data: null };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * 요청자 본인: 반려된 요청을 관리자의견에 맞게 고쳐 다시 승인 요청한다 (같은 요청 행을 승인대기로 되돌림).
+ * 등록 요청은 새 내용으로, 수정 요청은 대상 입금내역 기준으로 다시 검사하고,
+ * 삭제 요청은 내용 없이 대상 입금내역의 현재 값으로 다시 올린다.
+ */
+export async function resubmitRequestAction(
+  requestId: number,
+  raw: Partial<Record<keyof DepositInput, unknown>> | null,
+): Promise<ActionResult<null>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) return { ok: false, error: "잘못된 요청입니다" };
+  try {
+    const request = await loadRejectedRequest(requestId, auth.uid);
+    if (!request) return { ok: false, error: "다시 요청할 수 있는 반려 건이 아닙니다 (이미 처리되었을 수 있습니다)" };
+
+    let row: DepositRow;
+    if (request.요청구분 === "등록") {
+      const normalized = normalizeDepositInput(raw ?? {});
+      if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
+      const data = withScopedSalesName(normalized.data, auth.scope);
+      row = { ...data, 입금자: await resolvePayer(data) };
+    } else {
+      if (request.입금내역id == null) return { ok: false, error: "대상 입금내역 정보가 없는 요청이라 다시 요청할 수 없습니다" };
+      const target = await loadEditableDeposit(request.입금내역id, auth.scope);
+      if (typeof target === "string") return { ok: false, error: target };
+      if (request.요청구분 === "삭제") {
+        if (!auth.canApprove) return { ok: false, error: "삭제 권한이 없습니다" };
+        row = pickDepositRow(target);
+      } else {
+        const normalized = normalizeDepositInput(raw ?? {});
+        if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
+        const input = withScopedSalesName(normalized.data, auth.scope);
+        row = {
+          ...input,
+          계약가: target.계약가,
+          입금처: target.입금처,
+          비고: target.비고,
+          현금영수증: input.현금영수증 ?? target.현금영수증,
+          입금자: await resolvePayer(input),
+        };
+        if (sameDepositRow(target, row)) return { ok: false, error: "현재 입금내역과 달라진 내용이 없습니다" };
+      }
+    }
+
+    if (!(await resubmitRequest(requestId, auth.uid, row))) {
+      return { ok: false, error: "다시 요청할 수 있는 반려 건이 아닙니다 (이미 처리되었을 수 있습니다)" };
+    }
+    refresh();
+    return { ok: true, data: null };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** 요청자 본인: 다시 요청하지 않을 반려 건을 목록에서 지운다 (입금내역은 바뀌지 않음) */
+export async function deleteRejectedRequestAction(requestId: number): Promise<ActionResult<null>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) return { ok: false, error: "잘못된 요청입니다" };
+  try {
+    if (!(await deleteRejectedRequest(requestId, auth.uid))) {
+      return { ok: false, error: "삭제할 수 있는 반려 건이 아닙니다 (이미 처리되었을 수 있습니다)" };
+    }
+    refresh(); // 반려 건수·목록 갱신
     return { ok: true, data: null };
   } catch (e) {
     return fail(e);
@@ -289,6 +373,14 @@ export async function createSiteAction(
   const { data, errors } = normalizeSiteInput(raw);
   if (errors.length) return { ok: false, error: errors.join("\n") };
   try {
+    // 새 현장의 영업사원·영업사원ID는 로그인한 영업사원ID로 권한 테이블을 찾아 채운다 (화면 입력값은 쓰지 않음)
+    const sales = await lookupSalesperson(auth.sid);
+    if (!sales) return { ok: false, error: `권한 테이블에서 영업사원ID '${auth.sid}'를 찾을 수 없습니다` };
+    if (!sales.영업사원) return { ok: false, error: `권한 테이블에 영업사원ID '${auth.sid}'의 이름이 없습니다` };
+    data.영업사원 = sales.영업사원;
+    data.영업사원ID = sales.영업사원ID;
+    const missing = (["현장번호", "고객명", "영업사원"] as const).filter((k) => !data[k]);
+    if (missing.length) return { ok: false, error: `${missing.join(", ")}을(를) 입력하세요` };
     const { data: row, error } = await getSupabaseAdmin()
       .from(SITES_TABLE)
       .insert(withScopedSalesName(writableFields(data), scope))

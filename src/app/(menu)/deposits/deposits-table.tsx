@@ -50,6 +50,8 @@ export function DepositsTable({
   initialDeposits,
   sites,
   fixedSalesName = null,
+  loginName,
+  isAdmin = false,
   pendingTargets,
 }: {
   initialDeposits: Deposit[];
@@ -58,6 +60,10 @@ export function DepositsTable({
   pendingTargets: Record<number, RequestKind>;
   /** RD 로그인이면 본인 이름 (입금 등록 시 영업사원 고정) */
   fixedSalesName?: string | null;
+  /** 로그인한 사용자 이름 (입금 등록 시 현장번호 선택 목록을 본인 현장으로 좁힘) */
+  loginName: string;
+  /** CEO·관리자: 삭제 버튼 표시, 진행 중인 전체 현장 선택 가능 */
+  isAdmin?: boolean;
 }) {
   const [deposits, setDeposits] = useState(initialDeposits);
   // 이 화면은 이동해도 숨겨진 채 보관되므로, 서버에서 새 목록(예: 승인 후)이 오면 반영한다
@@ -81,6 +87,14 @@ export function DepositsTable({
   }, [toast]);
 
   const salesOptions = useMemo(() => distinct(deposits, "영업사원"), [deposits]);
+  // 현장번호 검색 선택 목록: 진행 중(완료일 없음)인 현장 중
+  // 관리자는 전체, 그 외는 본인(영업사원 = 로그인 이름) 현장
+  const siteOptions = useMemo(() => {
+    const active = sites.filter((s) => s.현장번호 && !s.완료일);
+    if (isAdmin) return active;
+    const me = loginName.trim();
+    return active.filter((s) => s.영업사원?.trim() === me);
+  }, [sites, loginName, isAdmin]);
   // 정해진 입금구분 + 기존 데이터에만 있는 값
   const typeOptions = useMemo(() => {
     const extra = distinct(deposits, "입금구분").filter((v) => !(DEPOSIT_TYPES as readonly string[]).includes(v));
@@ -124,7 +138,7 @@ export function DepositsTable({
 
   function requestDelete(d: Deposit) {
     const label = `${d.dateIso ?? d.날짜 ?? ""} ${d.고객명 ?? d.현장번호 ?? ""} ${d.입출금 ?? ""} ${d.입금액 ?? ""}원`;
-    if (!window.confirm(`${label}\n\n이 입금내역의 삭제를 요청하시겠습니까?\nCEO 승인 후 삭제됩니다.`)) return;
+    if (!window.confirm(`${label}\n\n이 입금내역을 삭제하시겠습니까?\n바로 삭제되며 되돌릴 수 없습니다.`)) return;
     setDeletingId(d.id);
     startDelete(async () => {
       const res = await deleteDepositAction(d.id);
@@ -133,7 +147,8 @@ export function DepositsTable({
         window.alert(res.error);
         return;
       }
-      setToast("삭제를 요청했습니다. 승인 후 삭제됩니다");
+      setDeposits((prev) => prev.filter((x) => x.id !== d.id));
+      setToast("입금내역을 삭제했습니다");
     });
   }
 
@@ -157,14 +172,16 @@ export function DepositsTable({
         >
           수정
         </button>
-        <button
-          type="button"
-          onClick={() => requestDelete(d)}
-          disabled={deletePending}
-          className="whitespace-nowrap rounded border border-red-200 bg-white px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-        >
-          {deletingId === d.id ? "요청 중…" : "삭제"}
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => requestDelete(d)}
+            disabled={deletePending}
+            className="whitespace-nowrap rounded border border-red-200 bg-white px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            {deletingId === d.id ? "삭제 중…" : "삭제"}
+          </button>
+        )}
       </span>
     );
   }
@@ -216,6 +233,8 @@ export function DepositsTable({
           key={editing?.id ?? "new"}
           sites={sites}
           fixedSalesName={fixedSalesName}
+          loginName={loginName}
+          isAdmin={isAdmin}
           editing={editing}
           onClose={() => {
             setFormOpen(false);
@@ -269,11 +288,20 @@ export function DepositsTable({
         <Field label="현장번호">
           <input
             type="search"
+            list="deposit-filter-sites"
             value={filters.현장번호}
             onChange={(e) => setFilter("현장번호", e.target.value)}
-            placeholder="예: 261022C"
+            placeholder={siteOptions.length ? "선택 또는 입력" : "예: 261022C"}
+            title="진행 중인 내 현장에서 선택하거나 번호 일부를 입력하세요"
             className={`${INPUT} w-full lg:w-40`}
           />
+          <datalist id="deposit-filter-sites">
+            {siteOptions.map((s) => (
+              <option key={s.현장번호} value={s.현장번호 ?? ""}>
+                {[s.고객명, s.영업사원].filter(Boolean).join(" · ")}
+              </option>
+            ))}
+          </datalist>
         </Field>
         <Field label="고객명">
           <input

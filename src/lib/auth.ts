@@ -6,6 +6,8 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { canApprove, scopeFor, type DataScope } from "@/lib/data-scope";
+import type { Salesperson } from "@/lib/sites";
+import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SEC,
@@ -100,10 +102,23 @@ export async function requireScope(): Promise<DataScope> {
 
 /** Server Action용: 통과하지 못하면 오류 메시지, 통과하면 데이터 범위를 돌려준다 */
 export async function authorizeAction(): Promise<
-  { ok: false; error: string } | { ok: true; uid: number; scope: DataScope; canApprove: boolean }
+  { ok: false; error: string } | { ok: true; uid: number; sid: string; name: string; scope: DataScope; canApprove: boolean }
 > {
   const session = await getSession();
   if (!session) return { ok: false, error: "로그인이 필요합니다. 다시 로그인해 주세요." };
   if (session.mustChangePassword) return { ok: false, error: "비밀번호를 먼저 변경해 주세요." };
-  return { ok: true, uid: session.uid, scope: scopeFor(session), canApprove: canApprove(session) };
+  return { ok: true, uid: session.uid, sid: session.sid, name: session.name, scope: scopeFor(session), canApprove: canApprove(session) };
+}
+
+/** 권한 테이블에서 영업사원ID로 영업사원(이름)을 찾는다 (새 현장의 영업사원·영업사원ID 자동 입력용) */
+export async function lookupSalesperson(sid: string): Promise<Salesperson | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(AUTH_TABLE)
+    .select("영업사원ID, 이름")
+    .eq("영업사원ID", sid)
+    .maybeSingle();
+  if (error) throw new Error(`영업사원 조회 실패: ${error.message}`);
+  if (!data) return null;
+  const row = data as unknown as { 영업사원ID: string; 이름: string | null };
+  return { 영업사원ID: row.영업사원ID, 영업사원: row.이름?.trim() || null };
 }

@@ -9,4 +9,9 @@ export const MENU = [
     label: "입금내역",
     description: "전체 현장의 입금·출금 내역 조회",
   },
+  {
+    href: "/board",
+    label: "게시판",
+    description: "글 쓰기·조회, 파일 첨부",
+  },
 ] as const;

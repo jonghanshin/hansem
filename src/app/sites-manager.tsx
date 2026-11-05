@@ -7,7 +7,7 @@ import { ExportButton } from "@/app/export-button";
 import { siteExportTable } from "@/lib/export-rows";
 import { Pagination, scrollToListTop, usePagination } from "@/app/pagination";
 import { SiteForm } from "@/app/site-form";
-import { formatMoney, formatPhone, type Site } from "@/lib/sites";
+import { formatMoney, formatPhone, type Salesperson, type Site } from "@/lib/sites";
 
 type Panel = { kind: "none" } | { kind: "create" } | { kind: "edit"; id: number };
 
@@ -16,8 +16,11 @@ const SEARCH_KEYS = ["현장번호", "고객명", "고객전화번호", "영업�
 export function SitesManager({
   initialSites,
   fixedSalesName = null,
+  newSiteSales,
 }: {
   initialSites: Site[];
+  /** 새 현장에 자동으로 넣을 로그인한 영업사원 (권한 테이블 기준) */
+  newSiteSales: Salesperson;
   /** RD 로그인이면 본인 이름 (신규·수정 시 영업사원 고정) */
   fixedSalesName?: string | null;
 }) {
@@ -216,6 +219,7 @@ export function SitesManager({
               key={panel.kind === "create" ? "new" : selected!.id}
               site={panel.kind === "create" ? null : selected}
               fixedSalesName={fixedSalesName}
+              newSiteSales={newSiteSales}
               onDirtyChange={(d) => {
                 dirtyRef.current = d;
               }}

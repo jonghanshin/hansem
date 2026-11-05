@@ -101,8 +101,11 @@ export type SiteInput = {
 
 export type Site = SiteInput & { id: number; created_at: string };
 
-/** 입금 등록 화면에서 현장번호 선택 시 고객명/영업사원/계약가 자동 채움용 */
-export type SiteSummary = Pick<Site, "현장번호" | "고객명" | "영업사원" | "계약가">;
+/** 입금 등록 화면에서 현장번호 선택 시 고객명/영업사원/계약가 자동 채움용 (완료일: 진행 중 여부 판단) */
+export type SiteSummary = Pick<Site, "현장번호" | "고객명" | "영업사원" | "계약가" | "완료일">;
+
+/** 로그인한 영업사원 (권한 테이블의 영업사원ID·이름). 새 현장에 자동으로 넣는다 */
+export type Salesperson = { 영업사원ID: string; 영업사원: string | null };
 
 export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 

@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 게시판 첨부파일 (서버에 올라온 파일)
+/upload/*
+!/upload/.gitkeep

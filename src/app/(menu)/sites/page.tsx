@@ -1,8 +1,9 @@
 import { connection } from "next/server";
 import { Suspense } from "react";
 
-import { requireScope } from "@/lib/auth";
+import { lookupSalesperson, requireUser } from "@/lib/auth";
 import { SitesManager } from "@/app/sites-manager";
+import { scopeFor } from "@/lib/data-scope";
 import { fetchSites } from "@/lib/sites-data";
 
 export const metadata = { title: "현장정보 | 현장정보 관리" };
@@ -19,9 +20,11 @@ export default function SitesPage() {
 
 async function SitesLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다
-  const scope = await requireScope(); // 로그인 확인 + RD는 본인 데이터만
-  const result = await fetchSites(scope).then(
-    (sites) => ({ ok: true as const, sites }),
+  const session = await requireUser(); // 로그인 확인
+  const scope = scopeFor(session); // RD는 본인 데이터만
+  // 새 현장의 영업사원·영업사원ID: 로그인한 영업사원ID로 권한 테이블에서 찾는다
+  const result = await Promise.all([fetchSites(scope), lookupSalesperson(session.sid)]).then(
+    ([sites, salesperson]) => ({ ok: true as const, sites, salesperson }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );
   if (!result.ok) {
@@ -32,5 +35,12 @@ async function SitesLoader() {
       </div>
     );
   }
-  return <SitesManager key={scope.salesName ?? "*"} initialSites={result.sites} fixedSalesName={scope.salesName} />;
+  return (
+    <SitesManager
+      key={scope.salesName ?? "*"}
+      initialSites={result.sites}
+      fixedSalesName={scope.salesName}
+      newSiteSales={result.salesperson ?? { 영업사원ID: session.sid, 영업사원: null }}
+    />
+  );
 }

@@ -5,6 +5,7 @@ import "server-only";
 //   요청구분  등록 → 입금내역에 새 행 입력
 //            수정 → 입금내역id 행을 요청 내용으로 변경
 //            삭제 → 입금내역id 행 삭제 (요청 행에는 삭제 당시 내용을 복사해 둔다)
+// 반려할 때는 관리자의견(반려 사유)을 함께 저장하고, 요청자는 의견을 보고 같은 요청을 고쳐 다시 승인대기로 올릴 수 있다.
 
 import {
   DEPOSIT_COLUMNS,
@@ -31,6 +32,7 @@ type RequestRecord = DepositRow & {
   요청자: number | null;
   요청일시: string;
   승인여부: string | null;
+  관리자의견: string | null;
 };
 
 export type PendingRequest = Parsed<RequestRecord> & {
@@ -41,7 +43,7 @@ export type PendingRequest = Parsed<RequestRecord> & {
   original: Deposit | null;
 };
 
-const REQUEST_COLUMNS = ["id", "요청구분", "입금내역id", "요청자", "요청일시", "승인여부", ...DEPOSIT_COLUMNS].join(", ");
+const REQUEST_COLUMNS = ["id", "요청구분", "입금내역id", "요청자", "요청일시", "승인여부", "관리자의견", ...DEPOSIT_COLUMNS].join(", ");
 
 /** 요청일시 컬럼은 time zone 없는 timestamp(UTC 기준)이므로 한국 시간으로 바꿔 표시 */
 function formatRequestedAt(value: string): string {
@@ -74,6 +76,17 @@ export async function countPendingRequests(requester?: number): Promise<number> 
   return count ?? 0;
 }
 
+/** 요청자 본인의 반려된 요청 건수 */
+export async function countRejectedRequests(requester: number): Promise<number> {
+  const { count, error } = await getSupabaseAdmin()
+    .from(PENDING_DEPOSITS_TABLE)
+    .select("id", { count: "exact", head: true })
+    .eq("승인여부", STATUS_REJECTED)
+    .eq("요청자", requester);
+  if (error) throw new Error(`반려 건수 조회 실패: ${error.message}`);
+  return count ?? 0;
+}
+
 /** 입금내역 id → 대기 중인 요청구분 (수정/삭제 승인 대기 표시용) */
 export async function fetchPendingTargets(): Promise<Record<number, RequestKind>> {
   const { data, error } = await getSupabaseAdmin()
@@ -100,10 +113,14 @@ export async function hasPendingRequestFor(depositId: number): Promise<boolean> 
 /**
  * 승인 대기 요청 목록 (먼저 요청한 순) + 요청자 이름, 수정·삭제 대상의 현재 값.
  * requester를 주면 그 사람이 요청한 건만 (RD의 '내 요청' 화면).
+ * statuses로 승인대기 외 상태(예: 반려)도 함께 가져올 수 있다.
  */
-export async function fetchPendingRequests(requester?: number): Promise<PendingRequest[]> {
+export async function fetchPendingRequests(
+  requester?: number,
+  statuses: string[] = [STATUS_PENDING],
+): Promise<PendingRequest[]> {
   const sb = getSupabaseAdmin();
-  let query = sb.from(PENDING_DEPOSITS_TABLE).select(REQUEST_COLUMNS).eq("승인여부", STATUS_PENDING);
+  let query = sb.from(PENDING_DEPOSITS_TABLE).select(REQUEST_COLUMNS).in("승인여부", statuses);
   if (requester !== undefined) query = query.eq("요청자", requester);
   const { data, error } = await query
     .order("요청일시")
@@ -136,10 +153,14 @@ export async function fetchPendingRequests(requester?: number): Promise<PendingR
 }
 
 /** '승인대기'인 요청만 상태를 바꾼다. 바뀐 요청을 돌려준다 (이미 처리됐으면 null). */
-async function claimRequest(id: number, status: string): Promise<RequestRecord | null> {
+async function claimRequest(
+  id: number,
+  status: string,
+  extra: Partial<RequestRecord> = {},
+): Promise<RequestRecord | null> {
   const { data, error } = await getSupabaseAdmin()
     .from(PENDING_DEPOSITS_TABLE)
-    .update({ 승인여부: status })
+    .update({ ...extra, 승인여부: status })
     .eq("id", id)
     .eq("승인여부", STATUS_PENDING)
     .select(REQUEST_COLUMNS)
@@ -195,7 +216,50 @@ export async function approveRequest(id: number): Promise<ApproveResult | null> 
   }
 }
 
-/** 반려: 요청을 '반려'로 바꾼다 (입금내역은 그대로) */
-export async function rejectRequest(id: number): Promise<boolean> {
-  return (await claimRequest(id, STATUS_REJECTED)) !== null;
+/** 반려: 요청을 '반려'로 바꾸고 관리자의견(반려 사유)을 저장한다 (입금내역은 그대로) */
+export async function rejectRequest(id: number, comment: string): Promise<boolean> {
+  return (await claimRequest(id, STATUS_REJECTED, { 관리자의견: comment })) !== null;
+}
+
+/** 요청자 본인의 반려된 요청 (재요청 대상). 없으면 null */
+export async function loadRejectedRequest(id: number, requester: number): Promise<RequestRecord | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(PENDING_DEPOSITS_TABLE)
+    .select(REQUEST_COLUMNS)
+    .eq("id", id)
+    .eq("요청자", requester)
+    .eq("승인여부", STATUS_REJECTED)
+    .maybeSingle();
+  if (error) throw new Error(`반려 요청 조회 실패: ${error.message}`);
+  return data as unknown as RequestRecord | null;
+}
+
+/** 요청자 본인의 반려된 요청을 지운다 (다시 요청하지 않을 건 정리용). 지웠으면 true */
+export async function deleteRejectedRequest(id: number, requester: number): Promise<boolean> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(PENDING_DEPOSITS_TABLE)
+    .delete()
+    .eq("id", id)
+    .eq("요청자", requester)
+    .eq("승인여부", STATUS_REJECTED)
+    .select("id");
+  if (error) throw new Error(`반려 건 삭제 실패: ${error.message}`);
+  return (data ?? []).length > 0;
+}
+
+/**
+ * 재요청: 반려된 요청을 고친 내용으로 바꿔 다시 '승인대기'로 올린다.
+ * 관리자의견은 남겨 두어 승인 화면에서 이전 반려 사유를 볼 수 있게 한다.
+ */
+export async function resubmitRequest(id: number, requester: number, row: DepositRow): Promise<boolean> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(PENDING_DEPOSITS_TABLE)
+    .update({ ...pickDepositRow(row), 승인여부: STATUS_PENDING, 요청일시: new Date().toISOString() })
+    .eq("id", id)
+    .eq("요청자", requester)
+    .eq("승인여부", STATUS_REJECTED)
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(`재요청 실패: ${error.message}`);
+  return data !== null;
 }
