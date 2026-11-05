@@ -41,7 +41,13 @@ function summary(d: DepositRow & { amount: number | null }) {
   return `${d.고객명 ?? d.현장번호 ?? ""} · ${d.입출금 ?? ""} ${d.amount !== null ? formatMoney(d.amount) : (d.입금액 ?? "")}원`;
 }
 
-export function ApprovalsTable({ rows }: { rows: PendingRequest[] }) {
+/**
+ * 승인 대기 요청 카드 목록.
+ * mode="approve": CEO·관리자의 승인 화면 (승인/반려 버튼)
+ * mode="mine": RD의 '내 요청' 화면 (보기 전용)
+ */
+export function ApprovalsTable({ rows, mode = "approve" }: { rows: PendingRequest[]; mode?: "approve" | "mine" }) {
+  const mine = mode === "mine";
   const [busy, setBusy] = useState<{ id: number; action: "approve" | "reject" } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -78,9 +84,14 @@ export function ApprovalsTable({ rows }: { rows: PendingRequest[] }) {
     <div className="flex flex-1 flex-col lg:min-h-0">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold text-zinc-900">
-          입금 승인 <span className="ml-1 text-sm font-normal text-zinc-500">대기 {rows.length}건</span>
+          {mine ? "내 승인 요청" : "입금 승인"}{" "}
+          <span className="ml-1 text-sm font-normal text-zinc-500">대기 {rows.length}건</span>
         </h1>
-        <p className="text-sm text-zinc-500">등록·수정·삭제 요청을 승인하면 입금내역에 반영됩니다.</p>
+        <p className="text-sm text-zinc-500">
+          {mine
+            ? "내가 요청한 입금 등록·수정·삭제 중 아직 승인되지 않은 내역입니다. 승인되면 입금내역에 반영됩니다."
+            : "등록·수정·삭제 요청을 승인하면 입금내역에 반영됩니다."}
+        </p>
       </header>
 
       {error && (
@@ -107,36 +118,44 @@ export function ApprovalsTable({ rows }: { rows: PendingRequest[] }) {
                 {r.요청구분 === "수정" ? <ChangeList r={r} /> : <FieldList d={r} strike={r.요청구분 === "삭제"} />}
                 {r.요청구분 !== "등록" && !r.original && (
                   <p className="mt-2 rounded-md bg-zinc-100 px-3 py-2 text-xs text-zinc-600">
-                    대상 입금내역이 이미 삭제되어 반영할 수 없습니다. 반려해 주세요.
+                    {mine
+                      ? "대상 입금내역이 이미 삭제되어 반영할 수 없는 요청입니다."
+                      : "대상 입금내역이 이미 삭제되어 반영할 수 없습니다. 반려해 주세요."}
                   </p>
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 border-t border-zinc-100 px-4 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => run(r, "reject")}
-                  disabled={pending}
-                  className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60"
-                >
-                  {busy?.id === r.id && busy.action === "reject" ? "반려 중…" : "반려"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => run(r, "approve")}
-                  disabled={pending || (r.요청구분 !== "등록" && !r.original)}
-                  className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {busy?.id === r.id && busy.action === "approve" ? "승인 중…" : "승인"}
-                </button>
-              </div>
+              {mine ? (
+                <div className="border-t border-zinc-100 px-4 py-2.5 text-right text-xs font-semibold text-amber-700">
+                  승인 대기 중
+                </div>
+              ) : (
+                <div className="flex justify-end gap-2 border-t border-zinc-100 px-4 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => run(r, "reject")}
+                    disabled={pending}
+                    className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60"
+                  >
+                    {busy?.id === r.id && busy.action === "reject" ? "반려 중…" : "반려"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => run(r, "approve")}
+                    disabled={pending || (r.요청구분 !== "등록" && !r.original)}
+                    className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {busy?.id === r.id && busy.action === "approve" ? "승인 중…" : "승인"}
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
 
         {rows.length === 0 && (
           <div className="px-6 py-16 text-center text-sm text-zinc-500">
-            <p>승인 대기 중인 요청이 없습니다.</p>
+            <p>{mine ? "승인을 기다리는 내 요청이 없습니다." : "승인 대기 중인 요청이 없습니다."}</p>
             <Link href="/deposits" className="mt-3 inline-block font-medium text-blue-600 hover:underline">
               입금내역 보기 →
             </Link>

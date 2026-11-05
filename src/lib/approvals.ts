@@ -62,11 +62,14 @@ export async function insertRequest(
   if (error) throw new Error(`승인 요청 등록 실패: ${error.message}`);
 }
 
-export async function countPendingRequests(): Promise<number> {
-  const { count, error } = await getSupabaseAdmin()
+/** 승인 대기 건수. requester를 주면 그 사람이 요청한 건만 센다 */
+export async function countPendingRequests(requester?: number): Promise<number> {
+  let query = getSupabaseAdmin()
     .from(PENDING_DEPOSITS_TABLE)
     .select("id", { count: "exact", head: true })
     .eq("승인여부", STATUS_PENDING);
+  if (requester !== undefined) query = query.eq("요청자", requester);
+  const { count, error } = await query;
   if (error) throw new Error(`승인 대기 건수 조회 실패: ${error.message}`);
   return count ?? 0;
 }
@@ -94,13 +97,15 @@ export async function hasPendingRequestFor(depositId: number): Promise<boolean> 
   return (count ?? 0) > 0;
 }
 
-/** 승인 대기 요청 목록 (먼저 요청한 순) + 요청자 이름, 수정·삭제 대상의 현재 값 */
-export async function fetchPendingRequests(): Promise<PendingRequest[]> {
+/**
+ * 승인 대기 요청 목록 (먼저 요청한 순) + 요청자 이름, 수정·삭제 대상의 현재 값.
+ * requester를 주면 그 사람이 요청한 건만 (RD의 '내 요청' 화면).
+ */
+export async function fetchPendingRequests(requester?: number): Promise<PendingRequest[]> {
   const sb = getSupabaseAdmin();
-  const { data, error } = await sb
-    .from(PENDING_DEPOSITS_TABLE)
-    .select(REQUEST_COLUMNS)
-    .eq("승인여부", STATUS_PENDING)
+  let query = sb.from(PENDING_DEPOSITS_TABLE).select(REQUEST_COLUMNS).eq("승인여부", STATUS_PENDING);
+  if (requester !== undefined) query = query.eq("요청자", requester);
+  const { data, error } = await query
     .order("요청일시")
     .order("id")
     .limit(1000);
