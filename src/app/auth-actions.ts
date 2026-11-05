@@ -7,7 +7,6 @@ import {
   MIN_PASSWORD_LENGTH,
   endSession,
   getSession,
-  hashPassword,
   startSession,
   verifyPassword,
   type AuthUser,
@@ -77,7 +76,7 @@ export async function changePasswordAction(_prev: FormState, formData: FormData)
 
     const { error } = await getSupabaseAdmin()
       .from(AUTH_TABLE)
-      .update({ 비번: await hashPassword(password), 접속여부: CONNECTED, 접속시간: new Date().toISOString() })
+      .update({ 비번: password, 접속여부: CONNECTED, 접속시간: new Date().toISOString() })
       .eq("id", user.id);
     if (error) return { error: `비밀번호 변경 실패: ${error.message}` };
 

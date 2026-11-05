@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomBytes, scrypt as scryptCb, timingSafeEqual, type BinaryLike } from "node:crypto";
+import { scrypt as scryptCb, timingSafeEqual, type BinaryLike } from "node:crypto";
 import { promisify } from "node:util";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -28,18 +28,11 @@ export type AuthUser = {
 };
 
 // ---------- 비밀번호 ----------
-// 변경한 비밀번호는 "scrypt$salt$hash" 형태로 저장한다.
-// 관리자가 넣어 둔 초기 비밀번호(평문)도 로그인할 수 있도록 두 형식을 모두 확인한다.
+// 비밀번호는 권한.비번 컬럼에 입력한 그대로(평문) 저장한다. 관리자가 테이블에서 직접 확인·초기화할 수 있게 하기 위함.
+// 이전 버전에서 "scrypt$salt$hash" 형태로 저장된 비밀번호도 계속 로그인할 수 있도록 두 형식을 모두 확인한다.
 
 const scrypt = promisify(scryptCb) as (pw: BinaryLike, salt: BinaryLike, keylen: number) => Promise<Buffer>;
 const HASH_PREFIX = "scrypt$";
-const KEY_LEN = 64;
-
-export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16);
-  const hash = await scrypt(password, salt, KEY_LEN);
-  return `${HASH_PREFIX}${salt.toString("base64")}$${hash.toString("base64")}`;
-}
 
 export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
   if (stored == null || stored === "") return false;
