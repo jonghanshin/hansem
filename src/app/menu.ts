@@ -14,4 +14,9 @@ export const MENU = [
     label: "게시판",
     description: "글 쓰기·조회, 파일 첨부",
   },
+  {
+    href: "/knowledge",
+    label: "지식자산",
+    description: "공정별거래처·타공정거래처·공정표 조회 및 수정",
+  },
 ] as const;
