@@ -92,6 +92,7 @@ export function DepositList({
                     {d.비고 && <span>비고: {d.비고}</span>}
                   </p>
                 )}
+                {d["A/S"] && <p className="mt-0.5 text-xs whitespace-pre-line text-zinc-500">A/S: {d["A/S"]}</p>}
               </li>
             );
           })}

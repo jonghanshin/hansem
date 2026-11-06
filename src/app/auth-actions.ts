@@ -15,7 +15,7 @@ import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 // 성공하면 redirectTo를 돌려주고, 화면에서 페이지를 완전히 새로 불러온다.
 // (이 Next.js는 이전 화면을 숨겨서 보관하므로 soft redirect로는 이전 사용자의 화면 상태가 남을 수 있다)
-export type FormState = { error?: string; values?: Record<string, string>; redirectTo?: string };
+export type FormState = { error?: string; values?: Record<string, string>; redirectTo?: string; success?: string };
 
 const USER_COLUMNS = "id, 영업사원ID, 이름, 역할, 비번, 접속여부";
 const LOGIN_FAILED = "ID 또는 비밀번호가 올바르지 않습니다.";
@@ -85,6 +85,34 @@ export async function changePasswordAction(_prev: FormState, formData: FormData)
     return { error: e instanceof Error ? e.message : String(e) };
   }
   return { redirectTo: "/" };
+}
+
+/** 나의정보 화면: 현재 비밀번호를 확인한 뒤 새 비밀번호로 바꾼다 (로그인은 유지) */
+export async function changeMyPasswordAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const current = str(formData, "current");
+  const password = str(formData, "password");
+  const confirm = str(formData, "confirm");
+  if (!current) return { error: "현재 비밀번호를 입력하세요." };
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return { error: `새 비밀번호는 ${MIN_PASSWORD_LENGTH}자리 이상이어야 합니다.` };
+  }
+  if (password !== confirm) return { error: "새 비밀번호 확인이 일치하지 않습니다." };
+  if (password === current) return { error: "현재 비밀번호와 다른 비밀번호를 입력하세요." };
+
+  try {
+    const user = await findUser("id", session.uid);
+    if (!user) return { error: "사용자 정보를 찾을 수 없습니다. 다시 로그인해 주세요." };
+    if (!(await verifyPassword(current, user.비번))) return { error: "현재 비밀번호가 올바르지 않습니다." };
+
+    const { error } = await getSupabaseAdmin().from(AUTH_TABLE).update({ 비번: password }).eq("id", user.id);
+    if (error) return { error: `비밀번호 변경 실패: ${error.message}` };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+  return { success: "비밀번호를 변경했습니다. 다음 로그인부터 새 비밀번호를 사용하세요." };
 }
 
 /** 세션만 지운다. 이동은 화면에서 전체 새로고침으로 한다 (logout-button.tsx) */

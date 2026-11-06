@@ -17,6 +17,8 @@ export type DepositRow = {
   날짜: string | null;
   현금영수증: string | null;
   비고: string | null;
+  /** A/S 내용 (자유 입력) */
+  "A/S": string | null;
 };
 
 /** 내용 컬럼 (id 제외). 승인필요입금내역도 같은 컬럼을 가진다. */
@@ -34,6 +36,7 @@ export const DEPOSIT_COLUMNS = [
   "날짜",
   "현금영수증",
   "비고",
+  "A/S",
 ] as const satisfies readonly (keyof DepositRow)[];
 
 /** 입금내역 테이블의 한 행 (id 포함) */
@@ -69,6 +72,7 @@ export function depositToInput(d: Deposit): DepositInput {
     입금내용: categoryRule(depositCategoryOf(d))?.입금내용 === null ? (d.입금내용 ?? "") : "",
     거래처: categoryRule(depositCategoryOf(d))?.입금자 === "vendor" ? (d.입금자 ?? "") : "",
     현금영수증: cashReceiptToInput(d.현금영수증),
+    "A/S": d["A/S"] ?? "",
   };
 }
 
@@ -90,7 +94,11 @@ export function sortDepositsDesc<T extends Parsed<DepositRow>>(rows: T[]): T[] {
 export const DEPOSIT_KINDS = ["입금", "출금"] as const;
 
 /** 입금내역 테이블의 입금구분 값 (목록 검색용) */
-export const DEPOSIT_TYPES = ["한샘물대", "한샘시공비", "한샘 외 시공비", "거래처환불"] as const;
+export const DEPOSIT_TYPES = [
+  "한샘물대", "한샘시공비", "한샘 외 시공비", "거래처환불",
+  "계약금1", "계약금2", "착수금1", "착수금2",
+  "중도금1", "중도금2", "중도금3", "잔금1", "잔금2",
+] as const;
 
 /** 현장정보.한샘시공비외 합계 대상 입금구분 */
 export const CONSTRUCTION_TYPE = "한샘 외 시공비";
@@ -100,7 +108,7 @@ export const REFUND_TYPE = "거래처환불";
 /**
  * 입금 등록·수정 화면에서 고르는 입금구분. 입금구분 컬럼에 그대로 저장되고, 고른 값으로 입출금·입금내용이 정해진다.
  */
-export const DEPOSIT_CATEGORIES = ["한샘물대", "한샘시공비", "한샘 외 시공비", "거래처환불"] as const;
+export const DEPOSIT_CATEGORIES = DEPOSIT_TYPES;
 export type DepositCategory = (typeof DEPOSIT_CATEGORIES)[number];
 
 /** 현금영수증 선택값 (수정 화면에서만 입력) */
@@ -130,6 +138,15 @@ export const CATEGORY_RULES: Record<
   한샘시공비: { 입출금: "입금", 입금구분: "한샘시공비", 입금내용: "한샘시공비", 입금자: "customer" },
   "한샘 외 시공비": { 입출금: "출금", 입금구분: "한샘 외 시공비", 입금내용: null, 입금자: NABI_PAYER },
   거래처환불: { 입출금: "입금", 입금구분: "거래처환불", 입금내용: null, 입금자: "vendor" },
+  계약금1: { 입출금: "입금", 입금구분: "계약금1", 입금내용: "계약금1", 입금자: "customer" },
+  계약금2: { 입출금: "입금", 입금구분: "계약금2", 입금내용: "계약금2", 입금자: "customer" },
+  착수금1: { 입출금: "입금", 입금구분: "착수금1", 입금내용: "착수금1", 입금자: "customer" },
+  착수금2: { 입출금: "입금", 입금구분: "착수금2", 입금내용: "착수금2", 입금자: "customer" },
+  중도금1: { 입출금: "입금", 입금구분: "중도금1", 입금내용: "중도금1", 입금자: "customer" },
+  중도금2: { 입출금: "입금", 입금구분: "중도금2", 입금내용: "중도금2", 입금자: "customer" },
+  중도금3: { 입출금: "입금", 입금구분: "중도금3", 입금내용: "중도금3", 입금자: "customer" },
+  잔금1: { 입출금: "입금", 입금구분: "잔금1", 입금내용: "잔금1", 입금자: "customer" },
+  잔금2: { 입출금: "입금", 입금구분: "잔금2", 입금내용: "잔금2", 입금자: "customer" },
 };
 
 /** 구분 문자열 → 규칙 (모르는 값이면 null) */
@@ -169,7 +186,11 @@ export type DepositInput = {
   거래처: string;
   /** 발행 / 미발행 / "" (수정 화면에서만, ""이면 기존 값 유지) */
   현금영수증: string;
+  /** A/S 내용 (자유 입력, 선택) */
+  "A/S": string;
 };
+
+export const AS_MAX_LENGTH = 500;
 
 /** "2026-10-29" → "2026년 10월 29일" (기존 데이터와 같은 형식으로 저장) */
 function toKoreanDate(iso: string) {
@@ -208,6 +229,9 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
     errors.push(`현금영수증은 ${CASH_RECEIPT_OPTIONS.join(", ")} 중에서 선택하세요`);
   }
 
+  const as = text(raw["A/S"]);
+  if (as && as.length > AS_MAX_LENGTH) errors.push(`A/S는 ${AS_MAX_LENGTH}자 이내로 입력하세요`);
+
   const amount = toMoney(raw.입금액);
   if (amount === null) errors.push("금액을 입력하세요");
   else if (amount === undefined || amount <= 0) errors.push("금액은 0보다 큰 숫자여야 합니다");
@@ -232,6 +256,7 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
       날짜: dateIso ? toKoreanDate(dateIso) : null,
       현금영수증, // 비어 있으면 수정 시 서버에서 기존 값 유지
       비고: null,
+      "A/S": as,
     },
   };
 }

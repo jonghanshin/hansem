@@ -12,7 +12,7 @@ export type ExportCell = string | number | null;
 
 export type ExportTable = { sheetName: string; columns: ExportColumn[]; rows: ExportCell[][] };
 
-const WIDTH: Partial<Record<string, number>> = { 현장주소: 50, 입금내용: 40, 비고: 30, 현장번호: 16, 고객전화번호: 16 };
+const WIDTH: Partial<Record<string, number>> = { 현장주소: 50, 입금내용: 40, 비고: 30, "A/S": 40, 현장번호: 16, 고객전화번호: 16 };
 
 /**
  * 현장정보 → 엑셀. 컬럼명은 업로드 양식과 같아서, 내보낸 파일을 고쳐서 그대로 다시 업로드할 수 있다.
@@ -49,6 +49,7 @@ const DEPOSIT_COLUMNS: { key: keyof Deposit; header: string; type: ExportColumnT
   { key: "계약가", header: "계약가", type: "money" },
   { key: "현금영수증", header: "현금영수증", type: "text" },
   { key: "비고", header: "비고", type: "text" },
+  { key: "A/S", header: "A/S", type: "text" },
 ];
 
 const toNumber = (v: string | null) => {

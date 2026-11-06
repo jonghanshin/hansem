@@ -110,6 +110,19 @@ export async function authorizeAction(): Promise<
   return { ok: true, uid: session.uid, sid: session.sid, name: session.name, scope: scopeFor(session), canApprove: canApprove(session) };
 }
 
+export type MyProfile = { 영업사원ID: string; 이름: string | null; 역할: string | null; 접속시간: string | null };
+
+/** 나의정보 화면용: 로그인한 사용자의 권한 테이블 정보 (비밀번호 제외) */
+export async function fetchMyProfile(uid: number): Promise<MyProfile | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(AUTH_TABLE)
+    .select("영업사원ID, 이름, 역할, 접속시간")
+    .eq("id", uid)
+    .maybeSingle();
+  if (error) throw new Error(`사용자 정보 조회 실패: ${error.message}`);
+  return data as unknown as MyProfile | null;
+}
+
 /** 권한 테이블에서 영업사원ID로 영업사원(이름)을 찾는다 (새 현장의 영업사원·영업사원ID 자동 입력용) */
 export async function lookupSalesperson(sid: string): Promise<Salesperson | null> {
   const { data, error } = await getSupabaseAdmin()

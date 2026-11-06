@@ -5,6 +5,7 @@ import { useId, useState, useTransition } from "react";
 import { createDepositAction, resubmitRequestAction, updateDepositAction } from "@/app/actions";
 import type { RequestKind } from "@/lib/approvals";
 import {
+  AS_MAX_LENGTH,
   CASH_RECEIPT_OPTIONS,
   CATEGORY_RULES,
   DEPOSIT_CATEGORIES,
@@ -60,6 +61,7 @@ export function DepositFormDialog({
           입금내용: "",
           거래처: "",
           현금영수증: "",
+          "A/S": "",
         },
   );
   const [error, setError] = useState<string | null>(null);
@@ -344,6 +346,17 @@ export function DepositFormDialog({
                   </select>
                 </label>
               )}
+              <label className="col-span-2 sm:col-span-4">
+                <Label>A/S</Label>
+                <textarea
+                  value={values["A/S"]}
+                  onChange={(e) => set("A/S", e.target.value)}
+                  maxLength={AS_MAX_LENGTH}
+                  rows={2}
+                  placeholder="A/S 관련 내용이 있으면 입력하세요 (선택)"
+                  className={`${INPUT} resize-y`}
+                />
+              </label>
             </div>
           </fieldset>
         </div>

@@ -43,6 +43,7 @@ const FIELDS: (typeof DEPOSIT_COLUMNS)[number][] = [
   "계약가",
   "현금영수증",
   "비고",
+  "A/S",
 ];
 
 function summary(d: DepositRow & { amount: number | null }) {

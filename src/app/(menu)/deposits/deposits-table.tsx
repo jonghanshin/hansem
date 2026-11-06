@@ -419,6 +419,7 @@ export function DepositsTable({
                   </p>
                 )}
                 {d.현금영수증 && <p className="mt-0.5 text-xs text-zinc-500">현금영수증: {d.현금영수증}</p>}
+                {d["A/S"] && <p className="mt-0.5 text-xs whitespace-pre-line text-zinc-500">A/S: {d["A/S"]}</p>}
                 <div className="mt-2 flex justify-end">{rowActions(d)}</div>
               </li>
             );
@@ -439,6 +440,7 @@ export function DepositsTable({
               <Th>입금내용</Th>
               <Th>입금구분</Th>
               <Th>현금영수증</Th>
+              <Th>A/S</Th>
               <Th>관리</Th>
             </tr>
           </thead>
@@ -468,6 +470,9 @@ export function DepositsTable({
                   </td>
                   <Td>{d.입금구분}</Td>
                   <Td>{d.현금영수증}</Td>
+                  <td className="max-w-60 truncate px-3 py-2 text-zinc-700" title={d["A/S"] ?? ""}>
+                    {d["A/S"]}
+                  </td>
                   <td className="whitespace-nowrap px-3 py-2">{rowActions(d)}</td>
                 </tr>
               );

@@ -43,7 +43,17 @@ export type PendingRequest = Parsed<RequestRecord> & {
   original: Deposit | null;
 };
 
-const REQUEST_COLUMNS = ["id", "요청구분", "입금내역id", "요청자", "요청일시", "승인여부", "관리자의견", ...DEPOSIT_COLUMNS].join(", ");
+const REQUEST_COLUMNS = [
+  "id",
+  "요청구분",
+  "입금내역id",
+  "요청자",
+  "요청일시",
+  "승인여부",
+  "관리자의견",
+  // PostgREST select에서 '/'가 들어간 컬럼명(A/S)은 큰따옴표로 감싸야 한다
+  ...DEPOSIT_COLUMNS.map((c) => (/^[\p{L}\p{N}_]+$/u.test(c) ? c : `"${c}"`)),
+].join(", ");
 
 /** 요청일시 컬럼은 time zone 없는 timestamp(UTC 기준)이므로 한국 시간으로 바꿔 표시 */
 function formatRequestedAt(value: string): string {
