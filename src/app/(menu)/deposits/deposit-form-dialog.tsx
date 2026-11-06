@@ -10,6 +10,7 @@ import {
   CATEGORY_RULES,
   CONSTRUCTION_TYPE,
   DEPOSIT_CATEGORIES,
+  DEPOSIT_KINDS,
   depositCategoryOf,
   depositToInput,
   EMPTY_VENDOR_INFO,
@@ -62,6 +63,7 @@ export function DepositFormDialog({
           고객명: "",
           영업사원: fixedSalesName ?? "",
           구분: "",
+          입출금: "",
           입금액: "",
           날짜: todayIso(),
           입금내용: "",
@@ -113,6 +115,8 @@ export function DepositFormDialog({
   const rule = (DEPOSIT_CATEGORIES as readonly string[]).includes(values.구분)
     ? CATEGORY_RULES[values.구분 as DepositCategory]
     : null;
+  const needsKind = rule?.입출금 === null; // 홈씨씨창호: 입금/출금을 직접 선택 (필수)
+  const kind = rule ? (rule.입출금 ?? values.입출금) : "";
   const needsContent = rule?.입금내용 === null; // 한샘 외 시공비, 거래처환불
   const needsVendor = rule?.입금자 === "vendor"; // 거래처환불
   // 저장될 입금자 미리보기 (실제 값은 서버에서 정함: 한샘물대·한샘시공비 = 현장정보 고객명, 그 외 = 나비지급)
@@ -291,8 +295,12 @@ export function DepositFormDialog({
                   {rule ? (
                     <>
                       입출금:{" "}
-                      <span className={rule.입출금 === "입금" ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>
-                        {rule.입출금}
+                      <span
+                        className={`font-semibold ${
+                          kind === "입금" ? "text-emerald-700" : kind === "출금" ? "text-red-600" : "text-zinc-400"
+                        }`}
+                      >
+                        {kind || "(아래에서 선택)"}
                       </span>
                       {" · "}입금자: <span className="font-semibold text-zinc-700">{payerPreview}</span>
                     </>
@@ -315,6 +323,38 @@ export function DepositFormDialog({
                   className={`${INPUT} text-right tabular-nums`}
                 />
               </label>
+              {needsKind && (
+                <fieldset className="col-span-2 sm:col-span-4">
+                  <legend className="mb-1 text-xs font-medium text-zinc-700">
+                    입금/출금<span className="ml-0.5 text-red-600">*</span>
+                  </legend>
+                  <div className="flex gap-2">
+                    {DEPOSIT_KINDS.map((k) => (
+                      <label
+                        key={k}
+                        className={`flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium ${
+                          values.입출금 === k
+                            ? k === "입금"
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                              : "border-red-400 bg-red-50 text-red-700"
+                            : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`${idp}-kind`}
+                          value={k}
+                          checked={values.입출금 === k}
+                          onChange={() => set("입출금", k)}
+                          required
+                          className="accent-blue-600"
+                        />
+                        {k}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
               {needsVendor && (
                 <label className="col-span-2 sm:col-span-4">
                   <Label required>거래처</Label>

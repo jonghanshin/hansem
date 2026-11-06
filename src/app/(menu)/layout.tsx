@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import { AdminNavLinks } from "@/app/admin-menu";
 import { PendingApprovalsNotice } from "@/app/pending-approvals-notice";
 import { UserMenu } from "@/app/user-menu";
 
@@ -11,6 +12,11 @@ export default function MenuLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh">
       <MenuNav
+        adminSlot={
+          <Suspense fallback={null}>
+            <AdminNavLinks />
+          </Suspense>
+        }
         userSlot={
           <>
             <Suspense fallback={null}>

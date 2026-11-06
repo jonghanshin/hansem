@@ -1,16 +1,20 @@
 "use client";
 
 import type { Deposit } from "@/lib/deposits";
+import { MONEY_GROUP_NOTE, summarizeSiteMoney, type ContractAmounts } from "@/lib/site-money";
 import { formatMoney } from "@/lib/sites";
 
 export function DepositList({
   siteNumber,
+  contract,
   deposits,
   loading,
   error,
   onRetry,
 }: {
   siteNumber: string;
+  /** 현장정보의 계약 금액 (계약가·시공비·한샘·홈씨씨) */
+  contract?: ContractAmounts | null;
   deposits: Deposit[] | null;
   loading: boolean;
   error: string | null;
@@ -42,10 +46,10 @@ export function DepositList({
 
   return (
     <div className={loading ? "opacity-60" : undefined}>
-      <div className="grid grid-cols-3 gap-px border-b border-zinc-200 bg-zinc-200">
+      {contract && <ContractVsPaid contract={contract} deposits={deposits} />}
+      <div className="grid grid-cols-2 gap-px border-b border-zinc-200 bg-zinc-200">
         <Stat label="입금 합계" value={inTotal} className="text-emerald-700" />
         <Stat label="출금 합계" value={outTotal} className="text-red-600" />
-        <Stat label="입금 − 출금" value={inTotal - outTotal} className="text-zinc-900" />
       </div>
 
       <p className="px-5 pt-4 pb-2 text-xs text-zinc-500">
@@ -99,6 +103,72 @@ export function DepositList({
         </ul>
       )}
     </div>
+  );
+}
+
+/** 최초 계약 금액과 실제 입금·출금 (시공비·한샘·홈씨씨별) */
+function ContractVsPaid({ contract, deposits }: { contract: ContractAmounts; deposits: Deposit[] }) {
+  const rows = summarizeSiteMoney(contract, deposits);
+  const total = {
+    paidIn: rows.reduce((acc, r) => acc + r.paidIn, 0),
+    paidOut: rows.reduce((acc, r) => acc + r.paidOut, 0),
+  };
+  return (
+    <section className="border-b border-zinc-200 px-5 py-4">
+      <h3 className="mb-2 text-xs font-semibold tracking-wide text-zinc-500">계약 금액 대비 입금·출금</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[22rem] text-sm">
+          <thead className="text-xs text-zinc-500">
+            <tr>
+              <th scope="col" className="py-1 text-left font-medium">항목</th>
+              <th scope="col" className="py-1 text-right font-medium">계약</th>
+              <th scope="col" className="py-1 text-right font-medium">입금</th>
+              <th scope="col" className="py-1 text-right font-medium">미입금</th>
+              <th scope="col" className="py-1 text-right font-medium">출금</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 tabular-nums">
+            {rows.map((r) => (
+              <AmountRow key={r.label} {...r} />
+            ))}
+            <AmountRow label="계약가 (합계)" planned={contract.계약가} {...total} strong />
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-zinc-400">{MONEY_GROUP_NOTE}</p>
+    </section>
+  );
+}
+
+function AmountRow({
+  label,
+  planned,
+  paidIn,
+  paidOut,
+  strong,
+}: {
+  label: string;
+  planned: number | null;
+  paidIn: number;
+  paidOut: number;
+  strong?: boolean;
+}) {
+  const remain = planned === null ? null : planned - paidIn;
+  const dash = <span className="text-zinc-300">-</span>;
+  return (
+    <tr className={strong ? "border-t-2 border-zinc-200 font-semibold" : undefined}>
+      <td className={`py-1.5 whitespace-nowrap ${strong ? "text-zinc-900" : "text-zinc-700"}`}>{label}</td>
+      <td className="py-1.5 text-right text-zinc-900">{planned === null ? dash : formatMoney(planned)}</td>
+      <td className="py-1.5 text-right text-emerald-700">{formatMoney(paidIn)}</td>
+      <td
+        className={`py-1.5 text-right ${
+          remain === null ? "" : remain === 0 ? "text-zinc-400" : remain > 0 ? "text-amber-700" : "text-red-600"
+        }`}
+      >
+        {remain === null ? dash : remain < 0 ? `초과 ${formatMoney(-remain)}` : formatMoney(remain)}
+      </td>
+      <td className="py-1.5 text-right text-red-600">{paidOut ? formatMoney(paidOut) : <span className="text-zinc-400">0</span>}</td>
+    </tr>
   );
 }
 

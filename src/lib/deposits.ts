@@ -96,6 +96,7 @@ export function depositToInput(d: Deposit): DepositInput {
     영업사원: d.영업사원 ?? "",
     구분: depositCategoryOf(d) ?? "",
     입금액: d.amount !== null ? formatMoney(d.amount) : (d.입금액 ?? ""),
+    입출금: categoryRule(depositCategoryOf(d))?.입출금 === null ? (d.입출금 ?? "") : "",
     날짜: d.dateIso ?? "",
     입금내용: categoryRule(depositCategoryOf(d))?.입금내용 === null ? (d.입금내용 ?? "") : "",
     거래처: categoryRule(depositCategoryOf(d))?.입금자 === "vendor" ? (d.입금자 ?? "") : "",
@@ -163,7 +164,8 @@ export const NABI_PAYER = "나비지급";
 export const CATEGORY_RULES: Record<
   DepositCategory,
   {
-    입출금: string;
+    /** null이면 화면에서 입금/출금을 선택 (필수) */
+    입출금: (typeof DEPOSIT_KINDS)[number] | null;
     입금구분: string;
     입금내용: string | null; // null이면 화면에서 입력
     /** customer: 현장정보의 고객명, vendor: 화면에서 입력한 거래처명, 그 외는 고정값 */
@@ -172,7 +174,7 @@ export const CATEGORY_RULES: Record<
 > = {
   한샘물대: { 입출금: "입금", 입금구분: "한샘물대", 입금내용: "한샘물대", 입금자: "customer" },
   한샘시공비: { 입출금: "입금", 입금구분: "한샘시공비", 입금내용: "한샘시공비", 입금자: "customer" },
-  홈씨씨창호: { 입출금: "입금", 입금구분: "홈씨씨창호", 입금내용: "홈씨씨창호", 입금자: "customer" },
+  홈씨씨창호: { 입출금: null, 입금구분: "홈씨씨창호", 입금내용: "홈씨씨창호", 입금자: "customer" },
   "한샘 외 시공비": { 입출금: "출금", 입금구분: "한샘 외 시공비", 입금내용: null, 입금자: NABI_PAYER },
   거래처환불: { 입출금: "입금", 입금구분: "거래처환불", 입금내용: null, 입금자: "vendor" },
   계약금1: { 입출금: "입금", 입금구분: "계약금1", 입금내용: "계약금1", 입금자: "customer" },
@@ -215,6 +217,8 @@ export type DepositInput = {
   영업사원: string;
   /** 한샘물대 / 한샘시공비 / 한샘 외 시공비 / 거래처환불 */
   구분: string;
+  /** 입금 / 출금. 입금구분 규칙에 입출금이 정해져 있지 않을 때(홈씨씨창호)만 사용 (필수) */
+  입출금: string;
   입금액: string;
   날짜: string; // YYYY-MM-DD
   /** 구분이 '한샘 외 시공비'·'거래처환불'일 때만 사용 */
@@ -258,6 +262,12 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
   if (!rule) errors.push(`입금구분은 ${DEPOSIT_CATEGORIES.join(", ")} 중에서 선택하세요`);
   const 입금내용 = rule ? (rule.입금내용 ?? text(raw.입금내용)) : null;
   if (rule && !rule.입금내용 && !입금내용) errors.push(`${구분}: 입금내용을 입력하세요`);
+  // 입출금: 규칙에 정해져 있으면 그 값, 아니면(홈씨씨창호) 화면에서 고른 입금/출금
+  const pickedKind = text(raw.입출금);
+  const 입출금 = rule ? (rule.입출금 ?? pickedKind) : null;
+  if (rule && rule.입출금 === null && !(DEPOSIT_KINDS as readonly (string | null)[]).includes(pickedKind)) {
+    errors.push(`${구분}: 입금/출금을 선택하세요`);
+  }
   const 거래처 = rule?.입금자 === "vendor" ? text(raw.거래처) : null;
   if (rule?.입금자 === "vendor" && !거래처) errors.push(`${구분}: 거래처를 입력하세요`);
 
@@ -295,7 +305,7 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
       영업사원: text(raw.영업사원),
       계약가: null, // 화면에서 받지 않음 (수정 시 기존 값은 서버에서 유지)
       입금액: typeof amount === "number" ? formatMoney(amount) : null,
-      입출금: rule?.입출금 ?? null,
+      입출금,
       입금자: 거래처, // 거래처환불은 입력한 거래처명, 그 외는 서버에서 입금구분에 따라 채움
       입금내용,
       입금처: null,

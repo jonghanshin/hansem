@@ -20,3 +20,12 @@ export const MENU = [
     description: "공정별거래처·타공정거래처·공정표 조회 및 수정",
   },
 ] as const;
+
+/** 관리자(CEO·관리자)에게만 보이는 메뉴. 화면에서도 권한을 다시 확인한다 */
+export const ADMIN_MENU = [
+  {
+    href: "/dashboard",
+    label: "대시보드",
+    description: "진행 중인 전체 현장의 계약금·입금·출금 (시공비·한샘·홈씨씨별)",
+  },
+] as const;

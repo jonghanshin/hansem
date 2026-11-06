@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { AdminMenuCards } from "@/app/admin-menu";
 import { MENU } from "@/app/menu";
 import { PendingApprovalsNotice } from "@/app/pending-approvals-notice";
 import { UserMenu } from "@/app/user-menu";
@@ -36,6 +37,9 @@ export default function Home() {
               </Link>
             </li>
           ))}
+          <Suspense fallback={null}>
+            <AdminMenuCards />
+          </Suspense>
         </ul>
       </div>
     </main>

@@ -239,6 +239,7 @@ export function SiteForm({
         <div className="flex-1 overflow-y-auto">
           <DepositList
             siteNumber={siteNumber}
+            contract={site}
             deposits={deposits}
             loading={depositsLoading}
             error={depositError}
