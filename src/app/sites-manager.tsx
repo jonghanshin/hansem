@@ -7,7 +7,7 @@ import { ExportButton } from "@/app/export-button";
 import { siteExportTable } from "@/lib/export-rows";
 import { Pagination, scrollToListTop, usePagination } from "@/app/pagination";
 import { SiteForm } from "@/app/site-form";
-import { formatMoney, formatPhone, type Salesperson, type Site } from "@/lib/sites";
+import { formatMoney, type Salesperson, type Site } from "@/lib/sites";
 
 type Panel = { kind: "none" } | { kind: "create" } | { kind: "edit"; id: number };
 
@@ -132,7 +132,7 @@ export function SitesManager({
                   {s.현장주소 && <p className="mt-1 truncate text-sm text-zinc-600">{s.현장주소}</p>}
                   <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-zinc-500">
                     <span className="min-w-0 truncate">
-                      {[s.영업사원, s.공사품목, s.계약일 && `계약 ${s.계약일}`, formatPhone(s.고객전화번호)]
+                      {[s.영업사원, s.공사품목, s.계약일 && `계약 ${s.계약일}`, s.고객전화번호]
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
@@ -187,7 +187,7 @@ export function SitesManager({
                     </Td>
                     <Td mono>{s.현장번호}</Td>
                     <Td strong>{s.고객명}</Td>
-                    <Td mono>{formatPhone(s.고객전화번호)}</Td>
+                    <Td mono>{s.고객전화번호}</Td>
                     <Td>{s.영업사원}</Td>
                     <td className="max-w-72 truncate px-3 py-2 text-zinc-700" title={s.현장주소 ?? ""}>
                       {s.현장주소}

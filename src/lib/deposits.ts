@@ -19,7 +19,34 @@ export type DepositRow = {
   비고: string | null;
   /** A/S 내용 (자유 입력) */
   "A/S": string | null;
+  /** 거래처 정보 (입금 등록 화면의 '거래처 정보 등록' 팝업에서 공정별거래처 중 선택) */
+  공정: string | null;
+  주요작업: string | null;
+  업체: string | null;
+  업체담당자성함: string | null;
+  업체담당자연락처: string | null;
+  업체비고: string | null;
+  업체은행: string | null;
+  업체예금주: string | null;
+  업체계좌번호: string | null;
 };
+
+/** 거래처 정보 컬럼 (입금내역·승인필요입금내역 공통) */
+export const VENDOR_INFO_COLUMNS = [
+  "공정",
+  "주요작업",
+  "업체",
+  "업체담당자성함",
+  "업체담당자연락처",
+  "업체은행",
+  "업체예금주",
+  "업체계좌번호",
+  "업체비고",
+] as const;
+export type VendorInfoKey = (typeof VENDOR_INFO_COLUMNS)[number];
+export type VendorInfo = Record<VendorInfoKey, string>;
+export const EMPTY_VENDOR_INFO = Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, ""])) as VendorInfo;
+const VENDOR_INFO_MAX_LENGTH = 2000;
 
 /** 내용 컬럼 (id 제외). 승인필요입금내역도 같은 컬럼을 가진다. */
 export const DEPOSIT_COLUMNS = [
@@ -37,6 +64,7 @@ export const DEPOSIT_COLUMNS = [
   "현금영수증",
   "비고",
   "A/S",
+  ...VENDOR_INFO_COLUMNS,
 ] as const satisfies readonly (keyof DepositRow)[];
 
 /** 입금내역 테이블의 한 행 (id 포함) */
@@ -73,6 +101,7 @@ export function depositToInput(d: Deposit): DepositInput {
     거래처: categoryRule(depositCategoryOf(d))?.입금자 === "vendor" ? (d.입금자 ?? "") : "",
     현금영수증: cashReceiptToInput(d.현금영수증),
     "A/S": d["A/S"] ?? "",
+    ...Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, d[c] ?? ""])) as VendorInfo,
   };
 }
 
@@ -95,7 +124,7 @@ export const DEPOSIT_KINDS = ["입금", "출금"] as const;
 
 /** 입금내역 테이블의 입금구분 값 (목록 검색용) */
 export const DEPOSIT_TYPES = [
-  "한샘물대", "한샘시공비", "한샘 외 시공비", "거래처환불",
+  "한샘물대", "한샘시공비", "홈씨씨창호", "한샘 외 시공비", "거래처환불",
   "계약금1", "계약금2", "착수금1", "착수금2",
   "중도금1", "중도금2", "중도금3", "잔금1", "잔금2",
 ] as const;
@@ -112,12 +141,19 @@ export const DEPOSIT_CATEGORIES = DEPOSIT_TYPES;
 export type DepositCategory = (typeof DEPOSIT_CATEGORIES)[number];
 
 /** 현금영수증 선택값 (수정 화면에서만 입력) */
-export const CASH_RECEIPT_OPTIONS = ["발행", "미발행"] as const;
+export const CASH_RECEIPT_OPTIONS = ["발행완료", "발급필요", "카드결제"] as const;
 
-/** 저장된 현금영수증 값 → 수정 화면 선택값 (발행/미발행이 아니면 "" = 기존 값 유지) */
+/** 예전 표기 → 현재 선택값 */
+const CASH_RECEIPT_LEGACY: Record<string, (typeof CASH_RECEIPT_OPTIONS)[number]> = {
+  발행: "발행완료",
+  미발행: "발급필요",
+  미발급: "발급필요",
+};
+
+/** 저장된 현금영수증 값 → 수정 화면 선택값 (선택지에 없는 값이면 "" = 기존 값 유지) */
 function cashReceiptToInput(value: string | null): string {
-  if (value === "발행" || value === "미발행") return value;
-  if (value === "미발급") return "미발행"; // 예전 표기
+  if (value && (CASH_RECEIPT_OPTIONS as readonly string[]).includes(value)) return value;
+  if (value && Object.hasOwn(CASH_RECEIPT_LEGACY, value)) return CASH_RECEIPT_LEGACY[value];
   return "";
 }
 
@@ -136,6 +172,7 @@ export const CATEGORY_RULES: Record<
 > = {
   한샘물대: { 입출금: "입금", 입금구분: "한샘물대", 입금내용: "한샘물대", 입금자: "customer" },
   한샘시공비: { 입출금: "입금", 입금구분: "한샘시공비", 입금내용: "한샘시공비", 입금자: "customer" },
+  홈씨씨창호: { 입출금: "입금", 입금구분: "홈씨씨창호", 입금내용: "홈씨씨창호", 입금자: "customer" },
   "한샘 외 시공비": { 입출금: "출금", 입금구분: "한샘 외 시공비", 입금내용: null, 입금자: NABI_PAYER },
   거래처환불: { 입출금: "입금", 입금구분: "거래처환불", 입금내용: null, 입금자: "vendor" },
   계약금1: { 입출금: "입금", 입금구분: "계약금1", 입금내용: "계약금1", 입금자: "customer" },
@@ -170,7 +207,7 @@ export function depositCategoryOf(row: Pick<DepositRow, "입금구분" | "입금
  * 입력 폼에서 받는 값.
  * 입금자는 입금구분으로 정한다 (한샘물대·한샘시공비 = 현장정보 고객명, 한샘 외 시공비 = 나비지급, 거래처환불 = 입력한 거래처명).
  * 계약가·입금처·비고는 화면에서 받지 않는다 (수정 시에는 기존 값 유지).
- * 현금영수증은 수정 화면에서만 발행/미발행을 고르고, 고르지 않으면 기존 값을 유지한다.
+ * 현금영수증은 수정 화면에서만 발행완료/발급필요/카드결제를 고르고, 고르지 않으면 기존 값을 유지한다.
  */
 export type DepositInput = {
   현장번호: string;
@@ -184,11 +221,11 @@ export type DepositInput = {
   입금내용: string;
   /** 구분이 '거래처환불'일 때 입금자로 저장 */
   거래처: string;
-  /** 발행 / 미발행 / "" (수정 화면에서만, ""이면 기존 값 유지) */
+  /** 발행완료 / 발급필요 / 카드결제 / "" (수정 화면에서만, ""이면 기존 값 유지) */
   현금영수증: string;
   /** A/S 내용 (자유 입력, 선택) */
   "A/S": string;
-};
+} & VendorInfo; // 거래처 정보 (입금구분 '한샘 외 시공비'일 때 필수: 공정·업체)
 
 export const AS_MAX_LENGTH = 500;
 
@@ -230,7 +267,17 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
   }
 
   const as = text(raw["A/S"]);
-  if (as && as.length > AS_MAX_LENGTH) errors.push(`A/S는 ${AS_MAX_LENGTH}자 이내로 입력하세요`);
+  if (as && as.length > AS_MAX_LENGTH) errors.push(`비고는 ${AS_MAX_LENGTH}자 이내로 입력하세요`);
+
+  // 거래처 정보 (필수). 공정별거래처에서 고른 값을 그대로 저장한다
+  const vendor = Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, text(raw[c])])) as Record<VendorInfoKey, string | null>;
+  // 한샘 외 시공비만 필수. 그 외 구분은 입력한 경우에만 저장
+  if (rule?.입금구분 === CONSTRUCTION_TYPE && (!vendor.공정 || !vendor.업체)) {
+    errors.push(`${CONSTRUCTION_TYPE}는 거래처 정보를 등록하세요 (공정·업체)`);
+  }
+  for (const c of VENDOR_INFO_COLUMNS) {
+    if ((vendor[c]?.length ?? 0) > VENDOR_INFO_MAX_LENGTH) errors.push(`${c}은(는) ${VENDOR_INFO_MAX_LENGTH}자 이내여야 합니다`);
+  }
 
   const amount = toMoney(raw.입금액);
   if (amount === null) errors.push("금액을 입력하세요");
@@ -257,6 +304,7 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
       현금영수증, // 비어 있으면 수정 시 서버에서 기존 값 유지
       비고: null,
       "A/S": as,
+      ...vendor,
     },
   };
 }

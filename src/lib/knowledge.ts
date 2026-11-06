@@ -5,6 +5,7 @@ import {
   type KnowledgeInput,
   type KnowledgeRow,
   type KnowledgeTableKey,
+  type VendorPickerData,
 } from "@/lib/knowledge-shared";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
@@ -24,6 +25,20 @@ export async function fetchKnowledgeRows(key: KnowledgeTableKey): Promise<Knowle
   const { data, error } = await query.order("id", { ascending: true }).range(0, MAX_ROWS - 1);
   if (error) throw tableError(`${cfg.label} 조회`, cfg.table, error.message);
   return (data ?? []) as KnowledgeRow[];
+}
+
+/** 거래처 정보 선택 팝업 데이터: 공정표 순서대로 공정 목록(중복 제거)과 공정별거래처 전체 */
+export async function fetchVendorPickerData(): Promise<VendorPickerData> {
+  const [schedule, vendors] = await Promise.all([fetchKnowledgeRows("schedule"), fetchKnowledgeRows("vendors")]);
+  const seen = new Set<string>();
+  const processes: VendorPickerData["processes"] = [];
+  for (const r of schedule) {
+    const name = typeof r.공정 === "string" ? r.공정.trim() : "";
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    processes.push({ 공정: name, 주요작업: (r["주요 작업"] as string | null) ?? null });
+  }
+  return { processes, vendors };
 }
 
 /** 화면 입력값을 저장할 값으로 바꾼다. 설정에 없는 컬럼은 버린다. 잘못된 값이면 오류 문구 */

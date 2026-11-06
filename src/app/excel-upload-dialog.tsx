@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 
 import { insertSitesAction, parseExcelAction, type ExcelPreview } from "@/app/actions";
-import { formatMoney, formatPhone, type Site } from "@/lib/sites";
+import { formatMoney, type Site } from "@/lib/sites";
 
 export function ExcelUploadDialog({
   onClose,
@@ -191,7 +191,7 @@ export function ExcelUploadDialog({
                           </td>
                           <td className="px-2 py-1.5 whitespace-nowrap">{r.data.현장번호}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap">{r.data.고객명}</td>
-                          <td className="px-2 py-1.5 whitespace-nowrap tabular-nums">{formatPhone(r.data.고객전화번호)}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap tabular-nums">{r.data.고객전화번호}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap">{r.data.영업사원}</td>
                           <td className="max-w-64 truncate px-2 py-1.5" title={r.data.현장주소 ?? ""}>
                             {r.data.현장주소}

@@ -12,11 +12,13 @@ export const SITE_FIELDS = [
   { key: "현장주소", type: "text" },
   { key: "계약경로", type: "text" },
   { key: "계약가", type: "money" },
-  { key: "상품가액", type: "money" },
+  { key: "한샘상품가액", type: "money" },
+  { key: "홈씨씨상품가액", type: "money" },
   { key: "시공비", type: "money" },
   { key: "공사품목", type: "text" },
   { key: "공사시기", type: "date" },
   { key: "계약일", type: "date" },
+  { key: "완료예정일", type: "date" },
   { key: "완료일", type: "date" },
   { key: "한샘공급가합계", type: "money" },
   { key: "한샘물대", type: "money" },
@@ -29,6 +31,31 @@ export const SITE_FIELDS = [
 ] as const satisfies readonly { key: string; type: FieldType }[];
 
 export type SiteFieldKey = (typeof SITE_FIELDS)[number]["key"];
+
+/** 화면에 컬럼명과 다르게 보여줄 이름 (현장 상세·새 현장 화면) */
+const FIELD_LABELS: Partial<Record<SiteFieldKey, string>> = {
+  한샘상품가액: "한샘",
+  홈씨씨상품가액: "홈씨씨",
+};
+
+export function fieldLabel(key: SiteFieldKey): string {
+  return FIELD_LABELS[key] ?? key;
+}
+
+/** 계약가 = 시공비 + 한샘 + 홈씨씨 이어야 한다 */
+export const CONTRACT_PARTS = ["시공비", "한샘상품가액", "홈씨씨상품가액"] as const satisfies readonly SiteFieldKey[];
+
+/**
+ * 계약가와 (시공비 + 한샘 + 홈씨씨) 합계 검사. 네 칸이 모두 비어 있으면 검사하지 않고, 빈 칸은 0으로 본다.
+ * 맞으면 null, 다르면 오류 문구.
+ */
+export function contractSumError(v: Pick<SiteInput, "계약가" | (typeof CONTRACT_PARTS)[number]>): string | null {
+  if (v.계약가 === null && CONTRACT_PARTS.every((k) => v[k] === null)) return null;
+  const sum = CONTRACT_PARTS.reduce((acc, k) => acc + (v[k] ?? 0), 0);
+  const contract = v.계약가 ?? 0;
+  if (sum === contract) return null;
+  return `시공비 + 한샘 + 홈씨씨 합계(${formatMoney(sum)})가 계약가(${formatMoney(contract)})와 ${formatMoney(Math.abs(sum - contract))}원 차이 납니다`;
+}
 
 /**
  * 다른 테이블에서 자동 계산되는 필드. 화면에서는 읽기 전용이고,
@@ -83,11 +110,13 @@ export type SiteInput = {
   현장주소: string | null;
   계약경로: string | null;
   계약가: number | null;
-  상품가액: number | null;
+  한샘상품가액: number | null;
+  홈씨씨상품가액: number | null;
   시공비: number | null;
   공사품목: string | null;
   공사시기: string | null; // YYYY-MM-DD
   계약일: string | null;
+  완료예정일: string | null;
   완료일: string | null;
   한샘공급가합계: number | null;
   한샘물대: number | null;
@@ -114,9 +143,15 @@ export function normalizeHeader(header: string): string {
   return header.replace(/\s+/g, "");
 }
 
-const FIELD_BY_HEADER = new Map<string, SiteFieldKey>(
-  SITE_FIELDS.map((f) => [normalizeHeader(f.key), f.key]),
-);
+/** 이전 컬럼명 → 현재 필드 (예전 양식으로 만든 엑셀도 업로드할 수 있게) */
+const HEADER_ALIASES: Record<string, SiteFieldKey> = {
+  상품가액: "한샘상품가액",
+};
+
+const FIELD_BY_HEADER = new Map<string, SiteFieldKey>([
+  ...Object.entries(HEADER_ALIASES).map(([h, k]) => [normalizeHeader(h), k] as const),
+  ...SITE_FIELDS.map((f) => [normalizeHeader(f.key), f.key] as const),
+]);
 
 export function fieldKeyForHeader(header: string): SiteFieldKey | undefined {
   return FIELD_BY_HEADER.get(normalizeHeader(header));
@@ -166,13 +201,18 @@ export function toMoney(value: unknown): number | null | undefined {
   return Math.round(Number(s));
 }
 
-/** 숫자만 남기고, 엑셀에서 앞자리 0이 빠진 휴대폰 번호(10xxxxxxxx)는 0을 복원한다. */
+/**
+ * 전화번호는 입력한 그대로(앞뒤 공백만 제거) 저장한다.
+ * 단, 엑셀에서 숫자 서식으로 읽힌 휴대폰 번호는 앞자리 0이 빠져 있으므로(예: 1035368885) 0을 복원한다.
+ */
 export function toPhone(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  const digits = String(value).replace(/\D/g, "");
-  if (!digits) return null;
-  if (/^1[016789]\d{7,8}$/.test(digits)) return `0${digits}`;
-  return digits;
+  if (typeof value === "number") {
+    const digits = String(value);
+    return /^1[016789]\d{7,8}$/.test(digits) ? `0${digits}` : digits;
+  }
+  const s = String(value).trim();
+  return s ? s : null;
 }
 
 function toText(value: unknown): string | null {

@@ -50,6 +50,15 @@ const DEPOSIT_COLUMNS: { key: keyof Deposit; header: string; type: ExportColumnT
   { key: "현금영수증", header: "현금영수증", type: "text" },
   { key: "비고", header: "비고", type: "text" },
   { key: "A/S", header: "A/S", type: "text" },
+  { key: "공정", header: "공정", type: "text" },
+  { key: "주요작업", header: "주요작업", type: "text" },
+  { key: "업체", header: "업체", type: "text" },
+  { key: "업체담당자성함", header: "업체담당자성함", type: "text" },
+  { key: "업체담당자연락처", header: "업체담당자연락처", type: "text" },
+  { key: "업체은행", header: "업체은행", type: "text" },
+  { key: "업체예금주", header: "업체예금주", type: "text" },
+  { key: "업체계좌번호", header: "업체계좌번호", type: "text" },
+  { key: "업체비고", header: "업체비고", type: "text" },
 ];
 
 const toNumber = (v: string | null) => {

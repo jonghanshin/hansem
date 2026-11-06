@@ -3,8 +3,8 @@
 import { refresh } from "next/cache";
 
 import { authorizeAction } from "@/lib/auth";
-import { deleteKnowledgeRow, insertKnowledgeRow, toRecord, updateKnowledgeRow } from "@/lib/knowledge";
-import { isKnowledgeKey, type KnowledgeInput } from "@/lib/knowledge-shared";
+import { deleteKnowledgeRow, fetchVendorPickerData, insertKnowledgeRow, toRecord, updateKnowledgeRow } from "@/lib/knowledge";
+import { isKnowledgeKey, type KnowledgeInput, type VendorPickerData } from "@/lib/knowledge-shared";
 import type { ActionResult } from "@/lib/sites";
 
 // 지식자산(공정별거래처·타공정거래처·공정표) 추가·수정·삭제. 로그인한 사용자는 누구나 할 수 있다.
@@ -15,6 +15,17 @@ function fail(e: unknown): { ok: false; error: string } {
 
 function validId(id: unknown): id is number {
   return typeof id === "number" && Number.isSafeInteger(id) && id > 0;
+}
+
+/** 입금 등록의 '거래처 정보 등록' 팝업: 공정표 공정 목록 + 공정별거래처 (읽기 전용) */
+export async function loadVendorPickerAction(): Promise<ActionResult<VendorPickerData>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  try {
+    return { ok: true, data: await fetchVendorPickerData() };
+  } catch (e) {
+    return fail(e);
+  }
 }
 
 /** id가 null이면 새 행 추가, 있으면 그 행 수정 */

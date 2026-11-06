@@ -17,6 +17,7 @@ import { authorizeAction, lookupSalesperson } from "@/lib/auth";
 import { applyScope, withScopedSalesName, type DataScope } from "@/lib/data-scope";
 import { fetchComputedSources, syncSiteTotals } from "@/lib/site-totals";
 import {
+  contractSumError,
   fieldKeyForHeader,
   isComputedField,
   normalizeSiteInput,
@@ -372,6 +373,8 @@ export async function createSiteAction(
   const { scope } = auth;
   const { data, errors } = normalizeSiteInput(raw);
   if (errors.length) return { ok: false, error: errors.join("\n") };
+  const sumError = contractSumError(data);
+  if (sumError) return { ok: false, error: sumError };
   try {
     // 새 현장의 영업사원·영업사원ID는 로그인한 영업사원ID로 권한 테이블을 찾아 채운다 (화면 입력값은 쓰지 않음)
     const sales = await lookupSalesperson(auth.sid);
@@ -403,6 +406,8 @@ export async function updateSiteAction(
   if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: "잘못된 id입니다" };
   const { data, errors } = normalizeSiteInput(raw);
   if (errors.length) return { ok: false, error: errors.join("\n") };
+  const sumError = contractSumError(data);
+  if (sumError) return { ok: false, error: sumError };
   try {
     const { data: row, error } = await applyScope(
       getSupabaseAdmin()

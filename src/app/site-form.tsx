@@ -7,9 +7,13 @@ import { DepositList } from "@/app/deposit-list";
 import type { Deposit } from "@/lib/deposits";
 import {
   COMPUTED_FIELDS,
+  contractSumError,
+  CONTRACT_PARTS,
+  fieldLabel,
   formatMoney,
   isComputedField,
   SITE_FIELDS,
+  toMoney,
   type ComputedFieldKey,
   type Salesperson,
   type Site,
@@ -23,8 +27,8 @@ type FormValues = Record<SiteFieldKey, string>;
 const SECTIONS: { title: string; keys: SiteFieldKey[] }[] = [
   { title: "기본 정보", keys: ["현장번호", "고객명", "고객전화번호", "현장주소"] },
   { title: "영업", keys: ["영업사원", "영업사원ID", "계약경로"] },
-  { title: "금액", keys: ["계약가", "상품가액", "시공비"] },
-  { title: "공사", keys: ["공사품목", "공사시기", "계약일", "완료일"] },
+  { title: "금액", keys: ["계약가", "시공비", "한샘상품가액", "홈씨씨상품가액"] },
+  { title: "공사", keys: ["공사품목", "공사시기", "계약일", "완료예정일", "완료일"] },
   {
     title: "한샘 정산",
     keys: [
@@ -172,6 +176,11 @@ export function SiteForm({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const sumError = contractSumError(moneyParts(values));
+    if (sumError) {
+      setError(sumError);
+      return;
+    }
     startTransition(async () => {
       const res = isNew ? await createSiteAction(values) : await updateSiteAction(site.id, values);
       if (!res.ok) {
@@ -255,7 +264,7 @@ export function SiteForm({
                   return (
                     <div key={key}>
                       <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-700">
-                        {key}
+                        {fieldLabel(key)}
                         <span
                           className="rounded bg-blue-50 px-1 py-px text-[10px] font-semibold text-blue-700"
                           title={info}
@@ -298,7 +307,7 @@ export function SiteForm({
                 return (
                   <label key={key} className={wide ? "col-span-2" : undefined}>
                     <span className="mb-1 block text-xs font-medium text-zinc-700">
-                      {key}
+                      {fieldLabel(key)}
                       {required && <span className="ml-0.5 text-red-600">*</span>}
                     </span>
                     <input
@@ -323,7 +332,7 @@ export function SiteForm({
                           : undefined
                       }
                       type={type === "date" ? "date" : type === "phone" ? "tel" : "text"}
-                      inputMode={type === "money" || type === "phone" ? "numeric" : undefined}
+                      inputMode={type === "money" ? "numeric" : undefined}
                       className={`w-full rounded-md border border-zinc-300 ${locked ? "bg-zinc-100 text-zinc-600" : "bg-white"} px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${
                         type === "money" ? "text-right tabular-nums" : ""
                       }`}
@@ -332,6 +341,7 @@ export function SiteForm({
                 );
               })}
             </div>
+            {section.title === "금액" && <ContractSumHint values={values} />}
           </fieldset>
         ))}
       </div>
@@ -367,5 +377,30 @@ export function SiteForm({
         <ComputedSourcesDialog siteNumber={siteNumber} field={sourceField} onClose={closeSources} />
       )}
     </form>
+  );
+}
+
+/** 금액 칸 문자열 → 계약가 합계 검사용 숫자 (해석 불가 값은 0, 서버에서 다시 검사) */
+function moneyParts(values: FormValues) {
+  const n = (k: "계약가" | (typeof CONTRACT_PARTS)[number]) => {
+    const v = toMoney(values[k]);
+    return v === undefined ? 0 : v;
+  };
+  return { 계약가: n("계약가"), 시공비: n("시공비"), 한샘상품가액: n("한샘상품가액"), 홈씨씨상품가액: n("홈씨씨상품가액") };
+}
+
+/** 시공비 + 한샘 + 홈씨씨 = 계약가 인지 바로 보여준다 */
+function ContractSumHint({ values }: { values: FormValues }) {
+  const parts = moneyParts(values);
+  if (parts.계약가 === null && CONTRACT_PARTS.every((k) => parts[k] === null)) return null;
+  const sum = CONTRACT_PARTS.reduce((acc, k) => acc + (parts[k] ?? 0), 0);
+  const diff = sum - (parts.계약가 ?? 0);
+  return (
+    <p className={`mt-2 text-xs ${diff === 0 ? "text-emerald-700" : "text-red-600"}`}>
+      시공비 + 한샘 + 홈씨씨 = <span className="font-semibold tabular-nums">{formatMoney(sum)}</span>
+      {diff === 0
+        ? " (계약가와 일치)"
+        : ` · 계약가보다 ${formatMoney(Math.abs(diff))}원 ${diff > 0 ? "많습니다" : "적습니다"} (저장하려면 맞춰야 합니다)`}
+    </p>
   );
 }

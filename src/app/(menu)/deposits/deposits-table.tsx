@@ -11,6 +11,7 @@ import type { RequestKind } from "@/lib/approvals";
 import { DEPOSIT_TYPES, type Deposit } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
+import { DepositDetailDialog } from "./deposit-detail-dialog";
 import { DepositFormDialog } from "./deposit-form-dialog";
 
 type Kind = "전체" | "입금" | "출금";
@@ -76,6 +77,8 @@ export function DepositsTable({
   const [kind, setKind] = useState<Kind>("전체");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Deposit | null>(null);
+  // 더블클릭으로 연 상세 팝업
+  const [viewing, setViewing] = useState<Deposit | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deletePending, startDelete] = useTransition();
   const [toast, setToast] = useState<string | null>(null);
@@ -148,6 +151,7 @@ export function DepositsTable({
         return;
       }
       setDeposits((prev) => prev.filter((x) => x.id !== d.id));
+      setViewing(null);
       setToast("입금내역을 삭제했습니다");
     });
   }
@@ -166,7 +170,10 @@ export function DepositsTable({
       <span className="inline-flex gap-1">
         <button
           type="button"
-          onClick={() => setEditing(d)}
+          onClick={() => {
+            setViewing(null);
+            setEditing(d);
+          }}
           disabled={deletePending}
           className="whitespace-nowrap rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
         >
@@ -184,6 +191,20 @@ export function DepositsTable({
         )}
       </span>
     );
+  }
+
+  /** 행 더블클릭 → 상세 팝업 (행 안의 수정/삭제 버튼을 누른 경우는 제외) */
+  function openDetail(e: React.MouseEvent, d: Deposit) {
+    if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+    window.getSelection()?.removeAllRanges();
+    setViewing(d);
+  }
+  /** 키보드: 행에 포커스가 있을 때 Enter로 상세 팝업 */
+  function onRowKey(e: React.KeyboardEvent, d: Deposit) {
+    if (e.key === "Enter" && e.target === e.currentTarget) {
+      e.preventDefault();
+      setViewing(d);
+    }
   }
 
   const inTotal = sum(filtered.filter((d) => d.입출금 === "입금"));
@@ -246,6 +267,15 @@ export function DepositsTable({
             setEditing(null);
             setToast(message);
           }}
+        />
+      )}
+
+      {viewing && (
+        <DepositDetailDialog
+          deposit={viewing}
+          waiting={pendingTargets[viewing.id]}
+          actions={rowActions(viewing)}
+          onClose={() => setViewing(null)}
         />
       )}
 
@@ -392,7 +422,14 @@ export function DepositsTable({
             const isOut = d.입출금 === "출금";
             const detail = [d.입금자, d.입금내용].filter(Boolean).join(" · ");
             return (
-              <li key={d.id} className="px-4 py-3">
+              <li
+                key={d.id}
+                onDoubleClick={(e) => openDetail(e, d)}
+                onKeyDown={(e) => onRowKey(e, d)}
+                tabIndex={0}
+                title="더블클릭하면 상세 내용을 봅니다"
+                className="cursor-pointer px-4 py-3 select-none focus-visible:bg-blue-50 focus-visible:outline-none"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-1.5">
                     {d.입출금 && <span className={`shrink-0 ${kindBadge(d.입출금)}`}>{d.입출금}</span>}
@@ -419,7 +456,6 @@ export function DepositsTable({
                   </p>
                 )}
                 {d.현금영수증 && <p className="mt-0.5 text-xs text-zinc-500">현금영수증: {d.현금영수증}</p>}
-                {d["A/S"] && <p className="mt-0.5 text-xs whitespace-pre-line text-zinc-500">A/S: {d["A/S"]}</p>}
                 <div className="mt-2 flex justify-end">{rowActions(d)}</div>
               </li>
             );
@@ -440,7 +476,6 @@ export function DepositsTable({
               <Th>입금내용</Th>
               <Th>입금구분</Th>
               <Th>현금영수증</Th>
-              <Th>A/S</Th>
               <Th>관리</Th>
             </tr>
           </thead>
@@ -449,7 +484,14 @@ export function DepositsTable({
               const isIn = d.입출금 === "입금";
               const isOut = d.입출금 === "출금";
               return (
-                <tr key={d.id} className="hover:bg-zinc-50">
+                <tr
+                  key={d.id}
+                  onDoubleClick={(e) => openDetail(e, d)}
+                  onKeyDown={(e) => onRowKey(e, d)}
+                  tabIndex={0}
+                  title="더블클릭하면 상세 내용을 봅니다"
+                  className="cursor-pointer select-none hover:bg-zinc-50 focus-visible:bg-blue-50 focus-visible:outline-none"
+                >
                   <Td mono>{d.dateIso ?? d.날짜}</Td>
                   <Td mono>{d.현장번호}</Td>
                   <Td strong>{d.고객명}</Td>
@@ -470,9 +512,6 @@ export function DepositsTable({
                   </td>
                   <Td>{d.입금구분}</Td>
                   <Td>{d.현금영수증}</Td>
-                  <td className="max-w-60 truncate px-3 py-2 text-zinc-700" title={d["A/S"] ?? ""}>
-                    {d["A/S"]}
-                  </td>
                   <td className="whitespace-nowrap px-3 py-2">{rowActions(d)}</td>
                 </tr>
               );

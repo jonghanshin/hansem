@@ -20,7 +20,8 @@ export type KnowledgeTableConfig = {
   orderBy: string[];
 };
 
-const VENDOR_COMMON: KnowledgeColumn[] = [
+/** 타공정거래처 컬럼 */
+const OTHER_VENDOR_COLUMNS: KnowledgeColumn[] = [
   { key: "구분", width: "7rem" },
   { key: "공정", width: "8rem" },
   { key: "세부 업무", multiline: true, width: "14rem" },
@@ -39,8 +40,18 @@ export const KNOWLEDGE_TABLES = {
     table: "공정별거래처",
     label: "공정별거래처",
     description: "공정별 거래처 연락처·계좌",
-    columns: [
-      ...VENDOR_COMMON,
+    columns: <KnowledgeColumn[]>[
+      { key: "구분", width: "7rem" },
+      { key: "공정", width: "8rem" },
+      { key: "세부 업무", multiline: true, width: "14rem" },
+      { key: "업체", width: "11rem" },
+      { key: "업체담당자성함", width: "6rem" },
+      { key: "직책", width: "5rem" },
+      { key: "업체담당자연락처", width: "9rem" },
+      { key: "업체비고", multiline: true, width: "14rem" },
+      { key: "업체은행", width: "6rem" },
+      { key: "업체예금주", width: "6rem" },
+      { key: "업체계좌번호", width: "10rem" },
       { key: "대체계좌 은행", width: "6rem" },
       { key: "대체계좌 예금주", width: "6rem" },
       { key: "대체계좌 번호", width: "10rem" },
@@ -52,19 +63,21 @@ export const KNOWLEDGE_TABLES = {
     table: "타공정거래처",
     label: "타공정거래처",
     description: "기타 공정 거래처",
-    columns: [...VENDOR_COMMON, { key: "분류 기준 / 기존 공정 구분", multiline: true, width: "16rem" }],
+    columns: [...OTHER_VENDOR_COLUMNS, { key: "분류 기준 / 기존 공정 구분", multiline: true, width: "16rem" }],
     orderBy: [],
   },
   schedule: {
     table: "공정표",
     label: "공정표",
     description: "공정 순서·소요일수·담당 업체",
-    columns: [
+    columns: <KnowledgeColumn[]>[
       { key: "순서", type: "int", width: "4rem" },
       { key: "공정", width: "10rem" },
       { key: "주요 작업", multiline: true, width: "16rem" },
       { key: "소요일수", width: "6rem" },
       { key: "사장님·업체명", multiline: true, width: "16rem" },
+      { key: "연락처", width: "9rem" },
+      { key: "구분·진행 조건", multiline: true, width: "14rem" },
       { key: "비고", multiline: true, width: "18rem" },
     ],
     orderBy: ["순서"],
@@ -83,3 +96,9 @@ export type KnowledgeRow = { id: number } & Record<string, string | number | nul
 
 /** 입력 화면에서 주고받는 값 (모두 문자열) */
 export type KnowledgeInput = Record<string, string>;
+
+/** 입금 등록의 '거래처 정보 등록' 팝업용: 공정표의 공정 목록 + 공정별거래처 전체 */
+export type VendorPickerData = {
+  processes: { 공정: string; 주요작업: string | null }[];
+  vendors: KnowledgeRow[];
+};
