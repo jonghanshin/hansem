@@ -33,6 +33,25 @@ export const SITE_FIELDS = [
   { key: "특이사항", type: "text" },
 ] as const satisfies readonly { key: string; type: FieldType }[];
 
+/** 정산여부 선택값 (빈 값 허용) */
+export const SETTLEMENT_OPTIONS = ["정산완료", "미정산", "대상아님"] as const;
+
+/** 예전 표기 → 정산여부 선택값 */
+const SETTLEMENT_ALIASES: Record<string, (typeof SETTLEMENT_OPTIONS)[number]> = {
+  NA: "대상아님",
+  "N/A": "대상아님",
+  해당없음: "대상아님",
+  정산: "정산완료",
+  완료: "정산완료",
+};
+
+/** 저장된 정산여부 → 선택값. 빈 값은 "", 알 수 없는 값은 원문 그대로 */
+export function normalizeSettlement(value: string | null | undefined): string {
+  const s = (value ?? "").trim();
+  if (!s || (SETTLEMENT_OPTIONS as readonly string[]).includes(s)) return s;
+  return SETTLEMENT_ALIASES[s.toUpperCase()] ?? SETTLEMENT_ALIASES[s] ?? s;
+}
+
 /** 특이사항 최대 글자 수 */
 export const SITE_NOTE_MAX_LENGTH = 2000;
 
@@ -286,6 +305,13 @@ export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>):
   // 한샘물대·한샘시공비를 나눠 입력했으면 한샘(한샘상품가액)은 두 값의 합계로 저장한다
   if (HANSEM_PARTS.some((k) => data[k] !== null)) {
     data.한샘상품가액 = HANSEM_PARTS.reduce((acc, k) => acc + ((data[k] as number | null) ?? 0), 0);
+  }
+
+  // 정산여부: 정산완료 / 미정산 / 대상아님 중 하나 (예전 표기 NA 등은 바꿔서 저장)
+  if (typeof data.정산여부 === "string") {
+    const v = normalizeSettlement(data.정산여부);
+    if ((SETTLEMENT_OPTIONS as readonly string[]).includes(v)) data.정산여부 = v;
+    else errors.push(`정산여부는 ${SETTLEMENT_OPTIONS.join(", ")} 중에서 선택하세요 (${data.정산여부})`);
   }
 
   if (typeof data.특이사항 === "string" && data.특이사항.length > SITE_NOTE_MAX_LENGTH) {

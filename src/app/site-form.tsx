@@ -13,6 +13,8 @@ import {
   formatMoney,
   HANSEM_PARTS,
   isComputedField,
+  normalizeSettlement,
+  SETTLEMENT_OPTIONS,
   SITE_FIELDS,
   SITE_NOTE_MAX_LENGTH,
   toMoney,
@@ -64,6 +66,8 @@ function toFormValues(site: Site | null): FormValues {
     const v = site?.[f.key];
     values[f.key] = v === null || v === undefined ? "" : f.type === "money" ? formatMoney(v as number) : String(v);
   }
+  // 예전 표기(NA 등)는 선택값으로 바꿔 보여준다 (저장하면 바뀐 값으로 반영)
+  values.정산여부 = normalizeSettlement(values.정산여부);
   return values;
 }
 
@@ -94,6 +98,7 @@ export function SiteForm({
   const initial = useMemo(() => {
     const v = toFormValues(site);
     if (fixedSalesName) v.영업사원 = fixedSalesName;
+    if (site === null) v.정산여부 = "미정산"; // 새 현장 기본값
     if (site === null && newSiteSales) {
       v.영업사원 = newSiteSales.영업사원 ?? "";
       v.영업사원ID = newSiteSales.영업사원ID;
@@ -330,6 +335,28 @@ export function SiteForm({
                             : " "}
                       </span>
                     </div>
+                  );
+                }
+                if (key === "정산여부") {
+                  const unknown = values[key] && !(SETTLEMENT_OPTIONS as readonly string[]).includes(values[key]);
+                  return (
+                    <label key={key}>
+                      <span className="mb-1 block text-xs font-medium text-zinc-700">{fieldLabel(key)}</span>
+                      <select
+                        name={key}
+                        value={values[key]}
+                        onChange={(e) => setField(key, e.target.value)}
+                        className={`w-full rounded-md border ${unknown ? "border-red-400" : "border-zinc-300"} bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20`}
+                      >
+                        <option value="">선택 안 함</option>
+                        {unknown && <option value={values[key]}>{values[key]} (다시 선택하세요)</option>}
+                        {SETTLEMENT_OPTIONS.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   );
                 }
                 if (key === "특이사항") {
