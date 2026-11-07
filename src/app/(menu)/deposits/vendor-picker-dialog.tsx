@@ -14,17 +14,17 @@ type Choice = number | typeof MANUAL | null;
 
 /**
  * 입금내역 컬럼 ← 화면 이름 (요약·입력 칸 순서).
- * always: 목록에서 고른 경우에도 값이 없더라도 칸을 보여주고 입력·수정할 수 있다.
+ * 공정은 위에서 고른 값으로 고정되고, 나머지는 목록에서 골라도 모두 고칠 수 있다.
  */
-export const VENDOR_INFO_LABELS: { key: VendorInfoKey; label: string; multiline?: boolean; always?: boolean; tel?: boolean }[] = [
+export const VENDOR_INFO_LABELS: { key: VendorInfoKey; label: string; multiline?: boolean; tel?: boolean }[] = [
   { key: "공정", label: "공정" },
   { key: "주요작업", label: "세부공정", multiline: true },
   { key: "업체", label: "업체" },
-  { key: "업체담당자성함", label: "업체담당자 이름", always: true },
-  { key: "업체담당자연락처", label: "업체담당자 연락처", always: true, tel: true },
-  { key: "업체은행", label: "은행명", always: true },
-  { key: "업체예금주", label: "예금주", always: true },
-  { key: "업체계좌번호", label: "계좌번호", always: true },
+  { key: "업체담당자성함", label: "업체담당자 이름" },
+  { key: "업체담당자연락처", label: "업체담당자 연락처", tel: true },
+  { key: "업체은행", label: "은행명" },
+  { key: "업체예금주", label: "예금주" },
+  { key: "업체계좌번호", label: "계좌번호" },
   { key: "업체비고", label: "업체비고", multiline: true },
 ];
 
@@ -67,7 +67,7 @@ export function VendorPickerDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [process, setProcess] = useState(current.공정);
   const [choice, setChoice] = useState<Choice>(null);
-  /** 저장할 값 (목록에서 고르면 그 행 값으로 채우고, 담당자·계좌 칸은 고칠 수 있다. 직접 입력이면 모두 입력) */
+  /** 저장할 값 (목록에서 고르면 그 행 값으로 채우고 공정 외 모든 칸을 고칠 수 있다. 직접 입력이면 모두 입력) */
   const [form, setForm] = useState<VendorInfo>(current);
   /** 직접 입력하던 값 (목록 선택과 오가도 잃지 않게) */
   const [manual, setManual] = useState<VendorInfo>(current);
@@ -260,12 +260,12 @@ export function VendorPickerDialog({
                 <section className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
                   <h3 className="mb-2 text-xs font-semibold text-zinc-600">
                     {choice === MANUAL ? "거래처 정보 직접 입력" : "선택한 거래처 정보"}
-                    <span className="ml-1 font-normal text-zinc-500">· 입금내역에 이 값으로 저장됩니다. 담당자·계좌는 고칠 수 있습니다</span>
+                    <span className="ml-1 font-normal text-zinc-500">· 입금내역에 이 값으로 저장됩니다. 각 항목을 고칠 수 있습니다 (공정별거래처 원본은 바뀌지 않음)</span>
                   </h3>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {VENDOR_INFO_LABELS.map(({ key, label, multiline, always, tel }) => {
-                      // 직접 입력: 공정 외 모두 입력 / 목록 선택: 담당자·계좌 칸만 입력 (값이 없어도 칸 표시)
-                      const editable = key !== "공정" && (choice === MANUAL || always);
+                    {VENDOR_INFO_LABELS.map(({ key, label, multiline, tel }) => {
+                      // 공정 외 모두 입력·수정 가능 (목록에서 고른 경우 그 행 값으로 채워진 상태에서 고친다)
+                      const editable = key !== "공정";
                       const wide = multiline ? "sm:col-span-2" : undefined;
                       if (!editable) {
                         return (
