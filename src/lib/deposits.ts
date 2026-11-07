@@ -90,6 +90,12 @@ export function sameDepositRow(a: DepositRow, b: DepositRow): boolean {
 
 /** 수정 화면 입력값으로 변환 */
 export function depositToInput(d: Deposit): DepositInput {
+  const 현금영수증 = cashReceiptToInput(d.현금영수증);
+  // 발급불필요면 비고 끝 줄의 사유를 사유 칸으로 옮긴다 (저장 시 다시 끝 줄에 붙임)
+  const note =
+    현금영수증 === CASH_RECEIPT_NOT_NEEDED
+      ? splitCashReceiptReason(d["A/S"] ?? "")
+      : { note: d["A/S"] ?? "", reason: "" };
   return {
     현장번호: d.현장번호 ?? "",
     고객명: d.고객명 ?? "",
@@ -100,8 +106,9 @@ export function depositToInput(d: Deposit): DepositInput {
     날짜: d.dateIso ?? "",
     입금내용: categoryRule(depositCategoryOf(d))?.입금내용 === null ? (d.입금내용 ?? "") : "",
     거래처: categoryRule(depositCategoryOf(d))?.입금자 === "vendor" ? (d.입금자 ?? "") : "",
-    현금영수증: cashReceiptToInput(d.현금영수증),
-    "A/S": d["A/S"] ?? "",
+    현금영수증,
+    현금영수증사유: note.reason,
+    "A/S": note.note,
     ...Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, d[c] ?? ""])) as VendorInfo,
   };
 }
@@ -142,7 +149,20 @@ export const DEPOSIT_CATEGORIES = DEPOSIT_TYPES;
 export type DepositCategory = (typeof DEPOSIT_CATEGORIES)[number];
 
 /** 현금영수증 선택값 (등록 시 필수) */
-export const CASH_RECEIPT_OPTIONS = ["발행완료", "발급필요", "카드결제"] as const;
+export const CASH_RECEIPT_OPTIONS = ["발행완료", "발급필요", "발급불필요", "카드결제"] as const;
+
+/** 이 값을 고르면 세부 사유를 받아 비고(A/S) 맨 끝 줄에 붙인다 */
+export const CASH_RECEIPT_NOT_NEEDED = "발급불필요";
+const CASH_RECEIPT_REASON_PREFIX = "현금영수증 발급불필요 사유: ";
+export const CASH_RECEIPT_REASON_MAX_LENGTH = 200;
+
+/** 비고 맨 끝 줄의 발급불필요 사유를 떼어 낸다 (수정 화면에서 사유 칸으로 되돌리기 위해) */
+function splitCashReceiptReason(note: string): { note: string; reason: string } {
+  const lines = note.split("\n");
+  const last = lines.at(-1) ?? "";
+  if (!last.startsWith(CASH_RECEIPT_REASON_PREFIX)) return { note, reason: "" };
+  return { note: lines.slice(0, -1).join("\n").trimEnd(), reason: last.slice(CASH_RECEIPT_REASON_PREFIX.length).trim() };
+}
 
 /** 예전 표기 → 현재 선택값 */
 const CASH_RECEIPT_LEGACY: Record<string, (typeof CASH_RECEIPT_OPTIONS)[number]> = {
@@ -209,7 +229,8 @@ export function depositCategoryOf(row: Pick<DepositRow, "입금구분" | "입금
  * 입력 폼에서 받는 값.
  * 입금자는 입금구분으로 정한다 (한샘물대·한샘시공비 = 현장정보 고객명, 한샘 외 시공비 = 나비지급, 거래처환불 = 입력한 거래처명).
  * 계약가·입금처·비고는 화면에서 받지 않는다 (수정 시에는 기존 값 유지).
- * 현금영수증(발행완료/발급필요/카드결제)은 등록 시 필수, 수정 시 고르지 않으면 기존 값을 유지한다.
+ * 현금영수증(발행완료/발급필요/발급불필요/카드결제)은 등록 시 필수, 수정 시 고르지 않으면 기존 값을 유지한다.
+ * 발급불필요는 세부 사유를 받아 비고(A/S) 맨 끝 줄에 붙인다.
  */
 export type DepositInput = {
   현장번호: string;
@@ -225,8 +246,10 @@ export type DepositInput = {
   입금내용: string;
   /** 구분이 '거래처환불'일 때 입금자로 저장 */
   거래처: string;
-  /** 발행완료 / 발급필요 / 카드결제. 등록 시 필수, 수정 시 ""이면 기존 값 유지 */
+  /** 발행완료 / 발급필요 / 발급불필요 / 카드결제. 등록 시 필수, 수정 시 ""이면 기존 값 유지 */
   현금영수증: string;
+  /** 현금영수증이 발급불필요일 때 세부 사유 (필수). 테이블 컬럼이 아니라 비고(A/S) 맨 끝 줄에 붙여 저장 */
+  현금영수증사유: string;
   /** A/S 내용 (자유 입력, 선택) */
   "A/S": string;
 } & VendorInfo; // 거래처 정보 (선택)
@@ -280,8 +303,20 @@ export function normalizeDepositInput(
     errors.push(`현금영수증은 ${CASH_RECEIPT_OPTIONS.join(", ")} 중에서 선택하세요`);
   }
 
-  const as = text(raw["A/S"]);
-  if (as && as.length > AS_MAX_LENGTH) errors.push(`비고는 ${AS_MAX_LENGTH}자 이내로 입력하세요`);
+  const note = text(raw["A/S"]);
+  if (note && note.length > AS_MAX_LENGTH) errors.push(`비고는 ${AS_MAX_LENGTH}자 이내로 입력하세요`);
+  // 발급불필요: 세부 사유(필수)를 비고 맨 끝 줄에 붙인다
+  let as = note;
+  // (수정 화면에서 '기존 값 유지'를 고른 기존 발급불필요 행도 사유가 오면 그대로 다시 붙인다)
+  if (현금영수증 === CASH_RECEIPT_NOT_NEEDED || (!현금영수증 && text(raw.현금영수증사유))) {
+    const reason = text(raw.현금영수증사유)?.replace(/\s*\n\s*/g, " ") ?? null;
+    if (!reason) errors.push("현금영수증 발급불필요 사유를 입력하세요");
+    else if (reason.length > CASH_RECEIPT_REASON_MAX_LENGTH) {
+      errors.push(`현금영수증 발급불필요 사유는 ${CASH_RECEIPT_REASON_MAX_LENGTH}자 이내로 입력하세요`);
+    } else {
+      as = [note, `${CASH_RECEIPT_REASON_PREFIX}${reason}`].filter(Boolean).join("\n");
+    }
+  }
 
   // 거래처 정보 (선택). 공정별거래처에서 고른 값을 그대로 저장한다 (입력한 경우에만 저장)
   const vendor = Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, text(raw[c])])) as Record<VendorInfoKey, string | null>;

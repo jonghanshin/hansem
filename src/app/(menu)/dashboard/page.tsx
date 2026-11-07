@@ -3,13 +3,14 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { requireUser } from "@/lib/auth";
-import { canApprove } from "@/lib/data-scope";
+import { isSuperAdmin } from "@/lib/data-scope";
 import type { Deposit } from "@/lib/deposits";
 import { MONEY_GROUP_NOTE, MONEY_GROUPS, summarizeSiteMoney, type MoneyGroupSummary } from "@/lib/site-money";
 import { fetchAllDeposits, fetchSites } from "@/lib/sites-data";
 import { formatMoney, type Site } from "@/lib/sites";
 
-import { BALANCE_ROW_COUNT, BalanceRows } from "./balance-rows";
+import { BALANCE_ROW_COUNT } from "./balance-config";
+import { BalanceRows } from "./balance-rows";
 
 export const metadata = { title: "대시보드 | 현장정보 관리" };
 
@@ -28,7 +29,7 @@ const ALL = { salesName: null }; // 관리자: 전체 데이터
 async function DashboardLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다
   const session = await requireUser();
-  if (!canApprove(session)) redirect("/"); // 관리자(CEO·관리자)만 볼 수 있다
+  if (!isSuperAdmin(session)) redirect("/"); // 슈퍼관리자만 볼 수 있다 (주소를 직접 입력해도 막음)
   const result = await Promise.all([fetchSites(ALL), fetchAllDeposits(ALL)]).then(
     ([sites, deposits]) => ({ ok: true as const, sites, deposits }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
@@ -63,7 +64,17 @@ async function DashboardLoader() {
     paidOut: rows.reduce((acc, r) => acc + r.groups[i].paidOut, 0),
   }));
 
-  return <DashboardTable rows={rows} total={total} />;
+  // 마지막 줄(미입금 + 통장잔고 − (예상공사비 − 출금))용 합계: 해당 항목의 계약금이 없는 현장은 빼고 더한다
+  const contracted = (g: MoneyGroupSummary) => (g.planned ?? 0) > 0;
+  const balanceBase = MONEY_GROUPS.map((_, i) => {
+    const groups = rows.map((r) => r.groups[i]).filter(contracted);
+    return {
+      unpaid: groups.reduce((acc, g) => acc + (g.planned ?? 0) - g.paidIn, 0),
+      paidOut: groups.reduce((acc, g) => acc + g.paidOut, 0),
+    };
+  });
+
+  return <DashboardTable rows={rows} total={total} balanceBase={balanceBase} />;
 }
 
 type Measure = { key: string; label: string; className: string; value: (g: MoneyGroupSummary) => number | null };
@@ -79,16 +90,19 @@ const MEASURES: Measure[] = [
 function DashboardTable({
   rows,
   total,
+  balanceBase,
 }: {
   rows: { site: Site; groups: MoneyGroupSummary[] }[];
   total: MoneyGroupSummary[];
+  /** 항목별 계약금이 있는 현장만 더한 미입금·출금 (마지막 줄 계산용) */
+  balanceBase: { unpaid: number; paidOut: number }[];
 }) {
-  const unpaid = MEASURES.find((m) => m.key === "unpaid")!;
   // 합산 아래 예상공사비·통장잔고·계산 줄 (화면에서 입력)
-  const balanceColumns = total.map((g) => ({
+  const balanceColumns = total.map((g, i) => ({
     label: g.label,
     planned: g.planned ?? 0,
-    unpaid: unpaid.value(g) ?? 0,
+    unpaid: balanceBase[i].unpaid,
+    paidOut: balanceBase[i].paidOut,
   }));
   return (
     <>

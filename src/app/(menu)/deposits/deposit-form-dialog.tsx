@@ -6,7 +6,9 @@ import { createDepositAction, resubmitRequestAction, updateDepositAction } from 
 import type { RequestKind } from "@/lib/approvals";
 import {
   AS_MAX_LENGTH,
+  CASH_RECEIPT_NOT_NEEDED,
   CASH_RECEIPT_OPTIONS,
+  CASH_RECEIPT_REASON_MAX_LENGTH,
   CATEGORY_RULES,
   DEPOSIT_CATEGORIES,
   DEPOSIT_KINDS,
@@ -68,13 +70,19 @@ export function DepositFormDialog({
           입금내용: "",
           거래처: "",
           현금영수증: "",
+          현금영수증사유: "",
           "A/S": "",
           ...EMPTY_VENDOR_INFO,
         },
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  // 현금영수증 발급불필요: 세부 사유를 받아 비고 맨 끝 줄에 붙인다 (수정에서 '기존 값 유지'인 기존 발급불필요 행 포함)
+  const notNeeded =
+    values.현금영수증 === CASH_RECEIPT_NOT_NEEDED ||
+    (isEdit && !values.현금영수증 && editing?.현금영수증 === CASH_RECEIPT_NOT_NEEDED);
   const vendorInfo = Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, values[c]])) as VendorInfo;
-  const hasVendor = !!(values.공정.trim() && values.업체.trim());
+  // 공정만 있으면 거래처 정보를 등록한 것으로 본다 (업체명은 없을 수 있음)
+  const hasVendor = !!values.공정.trim();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -404,6 +412,20 @@ export function DepositFormDialog({
                   ))}
                 </select>
               </label>
+              {notNeeded && (
+                <label className="col-span-2 sm:col-span-4">
+                  <Label required>발급불필요 사유</Label>
+                  <input
+                    value={values.현금영수증사유}
+                    onChange={(e) => set("현금영수증사유", e.target.value)}
+                    maxLength={CASH_RECEIPT_REASON_MAX_LENGTH}
+                    placeholder="예: 사업자 세금계산서 발행, 고객이 발급 원하지 않음"
+                    required
+                    className={INPUT}
+                  />
+                  <span className="mt-1 block text-xs text-zinc-500">비고 맨 끝 줄에 붙여 저장됩니다</span>
+                </label>
+              )}
               <label className="col-span-2 sm:col-span-4">
                 <Label>비고</Label>
                 <textarea

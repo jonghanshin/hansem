@@ -24,9 +24,16 @@ export function withScopedSalesName<T extends { 영업사원?: string | null }>(
   return scope.salesName == null ? data : { ...data, 영업사원: scope.salesName };
 }
 
+/** 대시보드 등 최상위 메뉴를 볼 수 있는 역할 (권한.역할 값). 관리자 권한(승인)도 함께 가진다 */
+export const SUPER_ADMIN_ROLE = "슈퍼관리자";
+
 /** 입금 등록·수정·삭제 승인 권한이 있는 역할 (권한.역할 값) */
-export const APPROVER_ROLES: readonly string[] = ["CEO", "관리자"];
+export const APPROVER_ROLES: readonly string[] = ["CEO", "관리자", SUPER_ADMIN_ROLE];
 
 export function canApprove(session: Pick<SessionPayload, "role"> | null): boolean {
   return !!session && APPROVER_ROLES.includes(session.role.trim());
+}
+
+export function isSuperAdmin(session: Pick<SessionPayload, "role"> | null): boolean {
+  return !!session && session.role.trim() === SUPER_ADMIN_ROLE;
 }

@@ -21,7 +21,7 @@ export const MENU = [
   },
 ] as const;
 
-/** 관리자(CEO·관리자)에게만 보이는 메뉴. 화면에서도 권한을 다시 확인한다 */
+/** 슈퍼관리자에게만 보이는 메뉴. 화면에서도 권한을 다시 확인한다 */
 export const ADMIN_MENU = [
   {
     href: "/dashboard",

@@ -4,19 +4,17 @@ import { useState } from "react";
 
 import { formatMoney, toMoney } from "@/lib/sites";
 
+import { DEFAULT_EXPECTED_RATE } from "./balance-config";
+
 export type BalanceColumn = {
   label: string;
   /** 합산 계약금 */
   planned: number;
-  /** 합산 미입금 */
+  /** 미입금 합계 (이 항목의 계약금이 있는 현장만) */
   unpaid: number;
+  /** 출금 합계 (이 항목의 계약금이 있는 현장만) */
+  paidOut: number;
 };
-
-/** 예상공사비 기본 비율 (계약금 대비 %) */
-export const DEFAULT_EXPECTED_RATE = 85;
-
-/** 이 컴포넌트가 그리는 행 수 (합산 칸 rowSpan 계산용) */
-export const BALANCE_ROW_COUNT = 3;
 
 const INPUT =
   "rounded-md border bg-white px-2 py-1 text-right text-sm font-semibold tabular-nums text-zinc-900 outline-none placeholder:font-normal placeholder:text-zinc-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20";
@@ -34,7 +32,7 @@ function parseRate(s: string): number | null {
  * 대시보드 합산의 마지막 세 줄 (tfoot 안). 모두 화면에서 입력하는 값이며 저장하지 않는다(새로고침하면 초기화).
  * - 예상공사비: 항목별 비율(기본 85%) × 합산 계약금
  * - 통장잔고: 항목별 직접 입력
- * - 미입금 + 통장잔고 − 예상공사비
+ * - 미입금 + 통장잔고 − (예상공사비 − 출금). 미입금·출금은 해당 항목의 계약금이 있는 현장만 더한 값
  */
 export function BalanceRows({ columns }: { columns: BalanceColumn[] }) {
   const [rates, setRates] = useState<Record<string, string>>({});
@@ -47,7 +45,8 @@ export function BalanceRows({ columns }: { columns: BalanceColumn[] }) {
     return n === undefined ? null : (n ?? 0); // 숫자가 아니면 계산하지 않음(null), 빈 칸은 0
   });
   const net = columns.map((c, i) =>
-    expected[i] === null || balance[i] === null ? null : c.unpaid + balance[i]! - expected[i]!,
+    // 예상공사비 중 이미 출금한 금액은 빼고, 앞으로 나갈 공사비만 차감한다
+    expected[i] === null || balance[i] === null ? null : c.unpaid + balance[i]! - (expected[i]! - c.paidOut),
   );
   const sum = (xs: (number | null)[]) => (xs.some((x) => x === null) ? null : xs.reduce<number>((a, x) => a + x!, 0));
 
@@ -106,7 +105,8 @@ export function BalanceRows({ columns }: { columns: BalanceColumn[] }) {
       <tr>
         <td className="px-3 py-1.5 text-zinc-600">
           미입금 + 통장잔고
-          <br />− 예상공사비
+          <br />− (예상공사비 − 출금)
+          <span className="block text-xs font-normal text-zinc-400">계약금 없는 현장 제외</span>
         </td>
         {net.map((v, i) => (
           <td key={columns[i].label} className="px-3 py-1.5 text-right tabular-nums">

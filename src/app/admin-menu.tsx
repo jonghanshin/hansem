@@ -3,12 +3,12 @@ import Link from "next/link";
 import { NavMenuLinks } from "@/app/(menu)/menu-nav";
 import { ADMIN_MENU } from "@/app/menu";
 import { getSession } from "@/lib/auth";
-import { canApprove } from "@/lib/data-scope";
+import { isSuperAdmin } from "@/lib/data-scope";
 
-// 관리자(CEO·관리자) 전용 메뉴. 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
+// 슈퍼관리자 전용 메뉴(대시보드). 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
 
 async function isAdmin() {
-  return canApprove(await getSession());
+  return isSuperAdmin(await getSession());
 }
 
 /** 상단 메뉴 바의 관리자 메뉴 링크 */
@@ -28,7 +28,7 @@ export async function AdminMenuCards() {
       >
         <span className="flex items-center gap-2 text-lg font-semibold text-zinc-900 group-hover:text-blue-700">
           {m.label}
-          <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">관리자</span>
+          <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">슈퍼관리자</span>
         </span>
         <span className="mt-2 text-sm text-zinc-500">{m.description}</span>
         <span className="mt-6 text-sm font-medium text-blue-600">열기 →</span>

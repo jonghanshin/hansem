@@ -82,7 +82,7 @@ export function VendorPickerDialog({
         return;
       }
       setData(res.data);
-      if (!initial.업체) return;
+      if (!initial.공정) return;
       // 이미 등록한 업체가 공정별거래처에 있으면 그 행을, 없으면 직접 입력을 선택해 둔다
       const prev = res.data.vendors.find(
         (v) =>
@@ -128,11 +128,8 @@ export function VendorPickerDialog({
 
   function confirm() {
     if (!result) return;
+    // 업체명은 선택 사항 (공정별거래처에 업체명 없이 등록된 행도 고를 수 있다)
     const trimmed = Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.trim()])) as VendorInfo;
-    if (!trimmed.업체) {
-      setError("업체 이름을 입력하세요");
-      return;
-    }
     onSelect(trimmed);
   }
 
@@ -284,7 +281,6 @@ export function VendorPickerDialog({
                         <label key={key} className={wide}>
                           <span className="mb-1 block text-xs font-medium text-zinc-700">
                             {label}
-                            {key === "업체" && <span className="ml-0.5 text-red-600">*</span>}
                           </span>
                           {multiline ? (
                             <textarea
