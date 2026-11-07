@@ -16,7 +16,11 @@ import { DepositFormDialog } from "./deposit-form-dialog";
 
 type Kind = "전체" | "입금" | "출금";
 
+/** 현장 상태 검색: all = 전체, active = 진행 중 현장만(기본), done = 완료 현장만 (현장정보.완료일 기준) */
+type SiteStatus = "all" | "active" | "done";
+
 type Filters = {
+  현장상태: SiteStatus;
   현장번호: string;
   고객명: string;
   영업사원: string; // "" = 전체
@@ -27,6 +31,7 @@ type Filters = {
 };
 
 const EMPTY_FILTERS: Filters = {
+  현장상태: "active", // 기본: 진행 중 현장만
   현장번호: "",
   고객명: "",
   영업사원: "",
@@ -90,25 +95,36 @@ export function DepositsTable({
   }, [toast]);
 
   const salesOptions = useMemo(() => distinct(deposits, "영업사원"), [deposits]);
-  // 현장번호 검색 선택 목록: 진행 중(완료일 없음)인 현장 중
+  // 현장번호 검색 선택 목록: 현장 상태 검색에 맞는 현장 (기본은 진행 중 = 완료일 없음)
   // 관리자는 전체, 그 외는 본인(영업사원 = 로그인 이름) 현장
+  const siteStatus = filters.현장상태;
   const siteOptions = useMemo(() => {
-    const active = sites.filter((s) => s.현장번호 && !s.완료일);
-    if (isAdmin) return active;
+    const matched = sites.filter(
+      (s) => s.현장번호 && (siteStatus === "done" ? !!s.완료일 : siteStatus === "all" || !s.완료일),
+    );
+    if (isAdmin) return matched;
     const me = loginName.trim();
-    return active.filter((s) => s.영업사원?.trim() === me);
-  }, [sites, loginName, isAdmin]);
+    return matched.filter((s) => s.영업사원?.trim() === me);
+  }, [sites, loginName, isAdmin, siteStatus]);
   // 정해진 입금구분 + 기존 데이터에만 있는 값
   const typeOptions = useMemo(() => {
     const extra = distinct(deposits, "입금구분").filter((v) => !(DEPOSIT_TYPES as readonly string[]).includes(v));
     return [...DEPOSIT_TYPES, ...extra];
   }, [deposits]);
 
+  // 완료일이 있는 현장번호 (현장정보에 없는 현장번호는 진행 중으로 본다)
+  const doneSites = useMemo(
+    () => new Set(sites.filter((s) => s.현장번호 && s.완료일).map((s) => s.현장번호!.trim())),
+    [sites],
+  );
+
   const filtered = useMemo(() => {
-    const { 현장번호, 고객명, 영업사원, 입금자, 입금구분, dateFrom, dateTo } = filters;
+    const { 현장상태, 현장번호, 고객명, 영업사원, 입금자, 입금구분, dateFrom, dateTo } = filters;
     const hasDateFilter = !!(dateFrom || dateTo);
+    const isDone = (d: Deposit) => doneSites.has(d.현장번호?.trim() ?? "");
     return deposits.filter(
       (d) =>
+        (현장상태 === "all" || (현장상태 === "done") === isDone(d)) &&
         (kind === "전체" || d.입출금 === kind) &&
         includesText(d.현장번호, 현장번호) &&
         includesText(d.고객명, 고객명) &&
@@ -119,7 +135,7 @@ export function DepositsTable({
         (!hasDateFilter ||
           (d.dateIso !== null && (!dateFrom || d.dateIso >= dateFrom) && (!dateTo || d.dateIso <= dateTo))),
     );
-  }, [deposits, filters, kind]);
+  }, [deposits, filters, kind, doneSites]);
 
   const paging = usePagination(filtered);
   const listRef = useRef<HTMLDivElement>(null);
@@ -129,14 +145,15 @@ export function DepositsTable({
   }
   // 모바일에서는 검색 조건을 접어 두고 버튼으로 연다
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
+  // 기본값과 다른 검색 조건 수 (현장 상태 기본값 '진행 중 현장만'은 세지 않음)
+  const activeFilterCount = (Object.keys(filters) as (keyof Filters)[]).filter((k) => filters[k] !== EMPTY_FILTERS[k]).length;
 
   // 검색 조건이 바뀌면 첫 페이지로
-  const setFilter = (key: keyof Filters, value: string) => {
+  const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
     setFilters((f) => ({ ...f, [key]: value }));
     paging.reset();
   };
-  const isFiltered = kind !== "전체" || Object.values(filters).some((v) => v !== "");
+  const isFiltered = kind !== "전체" || activeFilterCount > 0;
   const dateRangeInvalid = !!(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
 
   function requestDelete(d: Deposit) {
@@ -315,6 +332,18 @@ export function DepositsTable({
         onSubmit={(e) => e.preventDefault()}
         className={`${filtersOpen ? "grid" : "hidden"} grid-cols-2 items-end gap-x-3 gap-y-2 px-4 pb-3 sm:px-6 lg:flex lg:flex-wrap lg:py-3`}
       >
+        <Field label="현장 상태">
+          <select
+            value={filters.현장상태}
+            onChange={(e) => setFilter("현장상태", e.target.value as SiteStatus)}
+            title="현장정보의 완료일 기준 (완료일이 있으면 완료 현장)"
+            className={`${INPUT} w-full lg:w-36`}
+          >
+            <option value="all">전체 (완료 포함)</option>
+            <option value="active">진행 중 현장만</option>
+            <option value="done">완료 현장만</option>
+          </select>
+        </Field>
         <Field label="현장번호">
           <input
             type="search"
