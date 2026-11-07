@@ -11,6 +11,7 @@ import {
   CONTRACT_PARTS,
   fieldLabel,
   formatMoney,
+  HANSEM_PARTS,
   isComputedField,
   SITE_FIELDS,
   toMoney,
@@ -106,6 +107,8 @@ export function SiteForm({
   // 자동 계산 필드를 더블클릭하면 근거 내역을 보여준다
   const [sourceField, setSourceField] = useState<ComputedFieldKey | null>(null);
   const closeSources = useCallback(() => setSourceField(null), []);
+  // 한샘 금액: 팝업에서 한샘물대·한샘시공비를 나눠 입력하고 합계를 한샘으로 표시
+  const [hansemOpen, setHansemOpen] = useState(false);
 
   // 상세 화면을 열 때 자동 계산 필드(한샘공급가합계, 환불금액 등)를 다시 계산해 테이블에 반영
   const [syncing, setSyncing] = useState(!isNew);
@@ -161,10 +164,14 @@ export function SiteForm({
     loadDeposits(); // 열 때마다 최신 내역을 다시 읽는다
   }
 
-  function setField(key: SiteFieldKey, value: string) {
-    const next = { ...values, [key]: value };
+  function setFields(patch: Partial<FormValues>) {
+    const next = { ...values, ...patch };
     setValues(next);
     onDirtyChange(!sameValues(next, initial));
+  }
+
+  function setField(key: SiteFieldKey, value: string) {
+    setFields({ [key]: value });
   }
 
   function reset() {
@@ -300,6 +307,29 @@ export function SiteForm({
                     </div>
                   );
                 }
+                if (key === "한샘상품가액") {
+                  const parts = HANSEM_PARTS.map((k) => values[k].trim());
+                  return (
+                    <div key={key}>
+                      <span className="mb-1 block text-xs font-medium text-zinc-700">{fieldLabel(key)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setHansemOpen(true)}
+                        title="눌러서 한샘물대·한샘시공비를 입력하세요 (합계가 한샘 금액이 됩니다)"
+                        className="block w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-right text-sm text-zinc-900 tabular-nums hover:border-blue-300 hover:bg-blue-50/50 focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 focus-visible:outline-none"
+                      >
+                        {values.한샘상품가액.trim() || <span className="text-zinc-400">눌러서 입력</span>}
+                      </button>
+                      <span className="mt-1 block text-xs text-zinc-500 tabular-nums">
+                        {parts.some(Boolean)
+                          ? `물대 ${parts[0] || "0"} · 시공비 ${parts[1] || "0"}`
+                          : values.한샘상품가액.trim()
+                            ? "물대·시공비 미입력"
+                            : " "}
+                      </span>
+                    </div>
+                  );
+                }
                 const type = FIELD_TYPE[key];
                 const wide = key === "현장주소";
                 const autoSales = isNew && AUTO_SALES_KEYS.has(key);
@@ -377,7 +407,131 @@ export function SiteForm({
       {sourceField && siteNumber && (
         <ComputedSourcesDialog siteNumber={siteNumber} field={sourceField} onClose={closeSources} />
       )}
+      {hansemOpen && (
+        <HansemAmountDialog
+          values={values}
+          onClose={() => setHansemOpen(false)}
+          onApply={(patch) => {
+            setFields(patch);
+            setHansemOpen(false);
+          }}
+        />
+      )}
     </form>
+  );
+}
+
+/**
+ * 한샘 금액 입력 팝업: 한샘물대·한샘시공비를 따로 받고 합계를 한샘(한샘상품가액)으로 넣는다.
+ * 바깥 <form> 안에 렌더링되므로 form 태그를 쓰지 않고, Enter는 '적용'으로 처리한다.
+ */
+function HansemAmountDialog({
+  values,
+  onClose,
+  onApply,
+}: {
+  values: FormValues;
+  onClose: () => void;
+  onApply: (patch: Partial<FormValues>) => void;
+}) {
+  const [parts, setParts] = useState({ 한샘상품물대: values.한샘상품물대, 한샘상품시공비: values.한샘상품시공비 });
+  const [error, setError] = useState<string | null>(null);
+  const nums = HANSEM_PARTS.map((k) => toMoney(parts[k]));
+  const invalid = nums.some((n) => n === undefined);
+  const empty = nums.every((n) => n === null);
+  const sum = nums.reduce<number>((acc, n) => acc + (n ?? 0), 0);
+  // 예전에 합계만 입력된 현장 (물대·시공비 없이 한샘 금액만 있음)
+  const legacyTotal = !values.한샘상품물대.trim() && !values.한샘상품시공비.trim() ? values.한샘상품가액.trim() : "";
+
+  function apply() {
+    if (invalid) {
+      setError("금액은 숫자로 입력하세요");
+      return;
+    }
+    const fmt = (n: number | null | undefined) => (n === null || n === undefined ? "" : formatMoney(n));
+    onApply({
+      한샘상품물대: fmt(nums[0]),
+      한샘상품시공비: fmt(nums[1]),
+      한샘상품가액: empty ? "" : formatMoney(sum),
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <div role="dialog" aria-modal="true" aria-labelledby="hansem-amount-title" className="w-full max-w-sm rounded-xl bg-white shadow-xl">
+        <div className="border-b border-zinc-200 px-5 py-4">
+          <h3 id="hansem-amount-title" className="text-base font-semibold text-zinc-900">
+            한샘 금액 입력
+          </h3>
+          <p className="mt-0.5 text-xs text-zinc-500">한샘물대와 한샘시공비의 합계가 한샘 금액이 됩니다.</p>
+        </div>
+        <div className="space-y-3 px-5 py-4">
+          {legacyTotal && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              현재 한샘 금액 {legacyTotal}원은 물대·시공비로 나눠져 있지 않습니다.
+            </p>
+          )}
+          {HANSEM_PARTS.map((k, i) => (
+            <label key={k} className="block">
+              <span className="mb-1 block text-xs font-medium text-zinc-700">{fieldLabel(k)}</span>
+              <input
+                value={parts[k]}
+                onChange={(e) => setParts((p) => ({ ...p, [k]: e.target.value }))}
+                onBlur={() => {
+                  const n = toMoney(parts[k]);
+                  if (typeof n === "number") setParts((p) => ({ ...p, [k]: formatMoney(n) }));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault(); // 바깥 현장 폼이 제출되지 않게
+                    apply();
+                  }
+                }}
+                inputMode="numeric"
+                placeholder="0"
+                autoFocus={i === 0}
+                className="w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-right text-sm text-zinc-900 tabular-nums outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </label>
+          ))}
+          <div className="flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2 text-sm">
+            <span className="font-medium text-zinc-700">한샘 합계</span>
+            <span className={`font-semibold tabular-nums ${invalid ? "text-red-600" : "text-zinc-900"}`}>
+              {invalid ? "숫자를 확인하세요" : empty ? "-" : `${formatMoney(sum)}원`}
+            </span>
+          </div>
+          {error && (
+            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={apply}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            적용
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

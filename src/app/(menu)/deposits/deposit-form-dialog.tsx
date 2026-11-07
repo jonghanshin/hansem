@@ -8,7 +8,6 @@ import {
   AS_MAX_LENGTH,
   CASH_RECEIPT_OPTIONS,
   CATEGORY_RULES,
-  CONSTRUCTION_TYPE,
   DEPOSIT_CATEGORIES,
   DEPOSIT_KINDS,
   depositCategoryOf,
@@ -76,8 +75,6 @@ export function DepositFormDialog({
   const [pickerOpen, setPickerOpen] = useState(false);
   const vendorInfo = Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, values[c]])) as VendorInfo;
   const hasVendor = !!(values.공정.trim() && values.업체.trim());
-  // 거래처 정보는 입금구분이 '한샘 외 시공비'일 때만 필수 (그 외는 선택)
-  const vendorRequired = values.구분 === CONSTRUCTION_TYPE;
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -138,10 +135,6 @@ export function DepositFormDialog({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (vendorRequired && !hasVendor) {
-      setError(`${CONSTRUCTION_TYPE}는 거래처 정보를 등록해야 합니다`);
-      return;
-    }
     startTransition(async () => {
       const res = resubmit
         ? await resubmitRequestAction(resubmit.requestId, values)
@@ -184,8 +177,8 @@ export function DepositFormDialog({
               {resubmit
                 ? "관리자 의견을 반영해 고친 뒤 다시 승인 요청하세요."
                 : isEdit
-                  ? "수정 내용은 CEO 승인 후 입금내역에 반영됩니다."
-                  : "등록한 내역은 CEO 승인 후 입금내역에 반영됩니다."}
+                  ? "수정 내용은 관리자 승인 후 입금내역에 반영됩니다."
+                  : "등록한 내역은 관리자 승인 후 입금내역에 반영됩니다."}
             </p>
           </div>
           <button
@@ -389,19 +382,28 @@ export function DepositFormDialog({
                   className={INPUT}
                 />
               </label>
-              {isEdit && editing && (
-                <label className="col-span-2">
-                  <Label>현금영수증</Label>
-                  <select value={values.현금영수증} onChange={(e) => set("현금영수증", e.target.value)} className={INPUT}>
+              <label className="col-span-2">
+                <Label required={!isEdit}>현금영수증</Label>
+                <select
+                  value={values.현금영수증}
+                  onChange={(e) => set("현금영수증", e.target.value)}
+                  required={!isEdit}
+                  className={INPUT}
+                >
+                  {isEdit && editing ? (
                     <option value="">기존 값 유지{editing.현금영수증 ? ` (${editing.현금영수증})` : " (없음)"}</option>
-                    {CASH_RECEIPT_OPTIONS.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
+                  ) : (
+                    <option value="" disabled>
+                      선택하세요
+                    </option>
+                  )}
+                  {CASH_RECEIPT_OPTIONS.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="col-span-2 sm:col-span-4">
                 <Label>비고</Label>
                 <textarea
@@ -418,11 +420,7 @@ export function DepositFormDialog({
           <fieldset>
             <legend className="mb-2 text-xs font-semibold tracking-wide text-zinc-500">
               거래처 정보
-              {vendorRequired ? (
-                <span className="ml-0.5 text-red-600">*</span>
-              ) : (
-                <span className="ml-1 font-normal text-zinc-400">(선택 · {CONSTRUCTION_TYPE}는 필수)</span>
-              )}
+              <span className="ml-1 font-normal text-zinc-400">(선택)</span>
             </legend>
             {hasVendor ? (
               <div className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm">
@@ -436,30 +434,22 @@ export function DepositFormDialog({
                 >
                   변경
                 </button>
-                {!vendorRequired && (
-                  <button
-                    type="button"
-                    onClick={() => setValues((v) => ({ ...v, ...EMPTY_VENDOR_INFO }))}
-                    className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                  >
-                    지우기
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setValues((v) => ({ ...v, ...EMPTY_VENDOR_INFO }))}
+                  className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                >
+                  지우기
+                </button>
               </div>
             ) : (
               <button
                 type="button"
                 onClick={() => setPickerOpen(true)}
-                className={`w-full rounded-lg border border-dashed px-3 py-3 text-sm font-medium ${
-                  vendorRequired
-                    ? "border-blue-300 bg-blue-50/50 text-blue-700 hover:bg-blue-50"
-                    : "border-zinc-300 text-zinc-600 hover:bg-zinc-50"
-                }`}
+                className="w-full rounded-lg border border-dashed border-zinc-300 px-3 py-3 text-sm font-medium text-zinc-600 hover:bg-zinc-50"
               >
                 + 거래처 정보 등록{" "}
-                <span className="font-normal opacity-80">
-                  ({vendorRequired ? "필수" : "선택"} · 공정과 거래처를 선택하거나 직접 입력)
-                </span>
+                <span className="font-normal opacity-80">(선택 · 공정과 거래처를 선택하거나 직접 입력)</span>
               </button>
             )}
           </fieldset>

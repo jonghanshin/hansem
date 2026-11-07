@@ -141,7 +141,7 @@ export const REFUND_TYPE = "거래처환불";
 export const DEPOSIT_CATEGORIES = DEPOSIT_TYPES;
 export type DepositCategory = (typeof DEPOSIT_CATEGORIES)[number];
 
-/** 현금영수증 선택값 (수정 화면에서만 입력) */
+/** 현금영수증 선택값 (등록 시 필수) */
 export const CASH_RECEIPT_OPTIONS = ["발행완료", "발급필요", "카드결제"] as const;
 
 /** 예전 표기 → 현재 선택값 */
@@ -209,7 +209,7 @@ export function depositCategoryOf(row: Pick<DepositRow, "입금구분" | "입금
  * 입력 폼에서 받는 값.
  * 입금자는 입금구분으로 정한다 (한샘물대·한샘시공비 = 현장정보 고객명, 한샘 외 시공비 = 나비지급, 거래처환불 = 입력한 거래처명).
  * 계약가·입금처·비고는 화면에서 받지 않는다 (수정 시에는 기존 값 유지).
- * 현금영수증은 수정 화면에서만 발행완료/발급필요/카드결제를 고르고, 고르지 않으면 기존 값을 유지한다.
+ * 현금영수증(발행완료/발급필요/카드결제)은 등록 시 필수, 수정 시 고르지 않으면 기존 값을 유지한다.
  */
 export type DepositInput = {
   현장번호: string;
@@ -225,11 +225,11 @@ export type DepositInput = {
   입금내용: string;
   /** 구분이 '거래처환불'일 때 입금자로 저장 */
   거래처: string;
-  /** 발행완료 / 발급필요 / 카드결제 / "" (수정 화면에서만, ""이면 기존 값 유지) */
+  /** 발행완료 / 발급필요 / 카드결제. 등록 시 필수, 수정 시 ""이면 기존 값 유지 */
   현금영수증: string;
   /** A/S 내용 (자유 입력, 선택) */
   "A/S": string;
-} & VendorInfo; // 거래처 정보 (입금구분 '한샘 외 시공비'일 때 필수: 공정·업체)
+} & VendorInfo; // 거래처 정보 (선택)
 
 export const AS_MAX_LENGTH = 500;
 
@@ -243,7 +243,11 @@ function toKoreanDate(iso: string) {
  * 입금 입력값 검증 + 테이블 저장 형식으로 변환.
  * 입금내역은 모든 컬럼이 text라서 기존 행과 똑같이 금액은 "1,480,000", 날짜는 "2026년 10월 29일"로 저장한다.
  */
-export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, unknown>>): {
+export function normalizeDepositInput(
+  raw: Partial<Record<keyof DepositInput, unknown>>,
+  /** 등록(신규)일 때 true: 현금영수증 필수. 수정은 비워 두면 기존 값 유지 */
+  { requireCashReceipt = false }: { requireCashReceipt?: boolean } = {},
+): {
   data: DepositRow;
   errors: string[];
 } {
@@ -272,19 +276,15 @@ export function normalizeDepositInput(raw: Partial<Record<keyof DepositInput, un
   if (rule?.입금자 === "vendor" && !거래처) errors.push(`${구분}: 거래처를 입력하세요`);
 
   const 현금영수증 = text(raw.현금영수증);
-  if (현금영수증 && !(CASH_RECEIPT_OPTIONS as readonly string[]).includes(현금영수증)) {
+  if (현금영수증 ? !(CASH_RECEIPT_OPTIONS as readonly string[]).includes(현금영수증) : requireCashReceipt) {
     errors.push(`현금영수증은 ${CASH_RECEIPT_OPTIONS.join(", ")} 중에서 선택하세요`);
   }
 
   const as = text(raw["A/S"]);
   if (as && as.length > AS_MAX_LENGTH) errors.push(`비고는 ${AS_MAX_LENGTH}자 이내로 입력하세요`);
 
-  // 거래처 정보 (필수). 공정별거래처에서 고른 값을 그대로 저장한다
+  // 거래처 정보 (선택). 공정별거래처에서 고른 값을 그대로 저장한다 (입력한 경우에만 저장)
   const vendor = Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, text(raw[c])])) as Record<VendorInfoKey, string | null>;
-  // 한샘 외 시공비만 필수. 그 외 구분은 입력한 경우에만 저장
-  if (rule?.입금구분 === CONSTRUCTION_TYPE && (!vendor.공정 || !vendor.업체)) {
-    errors.push(`${CONSTRUCTION_TYPE}는 거래처 정보를 등록하세요 (공정·업체)`);
-  }
   for (const c of VENDOR_INFO_COLUMNS) {
     if ((vendor[c]?.length ?? 0) > VENDOR_INFO_MAX_LENGTH) errors.push(`${c}은(는) ${VENDOR_INFO_MAX_LENGTH}자 이내여야 합니다`);
   }

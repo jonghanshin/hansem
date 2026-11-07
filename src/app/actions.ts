@@ -138,7 +138,7 @@ async function resolvePayer(row: DepositRow): Promise<string | null> {
 export async function createDepositAction(raw: Partial<Record<keyof DepositInput, unknown>>): Promise<ActionResult<null>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
-  const normalized = normalizeDepositInput(raw ?? {});
+  const normalized = normalizeDepositInput(raw ?? {}, { requireCashReceipt: true });
   if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
   try {
     const data = withScopedSalesName(normalized.data, auth.scope);
@@ -256,7 +256,7 @@ export async function resubmitRequestAction(
 
     let row: DepositRow;
     if (request.요청구분 === "등록") {
-      const normalized = normalizeDepositInput(raw ?? {});
+      const normalized = normalizeDepositInput(raw ?? {}, { requireCashReceipt: true });
       if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
       const data = withScopedSalesName(normalized.data, auth.scope);
       row = { ...data, 입금자: await resolvePayer(data) };

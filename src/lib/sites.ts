@@ -13,6 +13,8 @@ export const SITE_FIELDS = [
   { key: "계약경로", type: "text" },
   { key: "계약가", type: "money" },
   { key: "한샘상품가액", type: "money" },
+  { key: "한샘상품물대", type: "money" },
+  { key: "한샘상품시공비", type: "money" },
   { key: "홈씨씨상품가액", type: "money" },
   { key: "시공비", type: "money" },
   { key: "공사품목", type: "text" },
@@ -35,8 +37,13 @@ export type SiteFieldKey = (typeof SITE_FIELDS)[number]["key"];
 /** 화면에 컬럼명과 다르게 보여줄 이름 (현장 상세·새 현장 화면) */
 const FIELD_LABELS: Partial<Record<SiteFieldKey, string>> = {
   한샘상품가액: "한샘",
+  한샘상품물대: "한샘물대",
+  한샘상품시공비: "한샘시공비",
   홈씨씨상품가액: "홈씨씨",
 };
+
+/** 한샘(한샘상품가액) = 한샘물대 + 한샘시공비. 새 현장/현장 상세의 '한샘' 팝업에서 나눠 입력한다 */
+export const HANSEM_PARTS = ["한샘상품물대", "한샘상품시공비"] as const satisfies readonly SiteFieldKey[];
 
 export function fieldLabel(key: SiteFieldKey): string {
   return FIELD_LABELS[key] ?? key;
@@ -111,6 +118,10 @@ export type SiteInput = {
   계약경로: string | null;
   계약가: number | null;
   한샘상품가액: number | null;
+  /** 한샘상품가액 중 물대 (한샘주문진도정보에서 계산하는 한샘물대와 별개) */
+  한샘상품물대: number | null;
+  /** 한샘상품가액 중 시공비 (한샘주문진도정보에서 계산하는 한샘시공비와 별개) */
+  한샘상품시공비: number | null;
   홈씨씨상품가액: number | null;
   시공비: number | null;
   공사품목: string | null;
@@ -259,6 +270,11 @@ export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>):
         break;
       }
     }
+  }
+
+  // 한샘물대·한샘시공비를 나눠 입력했으면 한샘(한샘상품가액)은 두 값의 합계로 저장한다
+  if (HANSEM_PARTS.some((k) => data[k] !== null)) {
+    data.한샘상품가액 = HANSEM_PARTS.reduce((acc, k) => acc + ((data[k] as number | null) ?? 0), 0);
   }
 
   if (SITE_FIELDS.every((f) => data[f.key] === null)) {
