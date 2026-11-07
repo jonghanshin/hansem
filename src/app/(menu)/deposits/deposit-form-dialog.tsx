@@ -391,7 +391,7 @@ export function DepositFormDialog({
                 />
               </label>
               <label className="col-span-2">
-                <Label required={!isEdit}>현금영수증</Label>
+                <Label required={!isEdit}>영수증</Label>
                 <select
                   value={values.현금영수증}
                   onChange={(e) => set("현금영수증", e.target.value)}

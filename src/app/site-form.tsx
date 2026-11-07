@@ -14,6 +14,7 @@ import {
   HANSEM_PARTS,
   isComputedField,
   SITE_FIELDS,
+  SITE_NOTE_MAX_LENGTH,
   toMoney,
   type ComputedFieldKey,
   type Salesperson,
@@ -43,6 +44,7 @@ const SECTIONS: { title: string; keys: SiteFieldKey[] }[] = [
       "정산월",
     ],
   },
+  { title: "특이사항", keys: ["특이사항"] },
 ];
 
 const REQUIRED: ReadonlySet<SiteFieldKey> = new Set(["현장번호"]);
@@ -328,6 +330,25 @@ export function SiteForm({
                             : " "}
                       </span>
                     </div>
+                  );
+                }
+                if (key === "특이사항") {
+                  return (
+                    <label key={key} className="col-span-2">
+                      <span className="sr-only">{fieldLabel(key)}</span>
+                      <textarea
+                        name={key}
+                        value={values[key]}
+                        onChange={(e) => setField(key, e.target.value)}
+                        rows={4}
+                        maxLength={SITE_NOTE_MAX_LENGTH}
+                        placeholder="현장 관련 특이사항을 자유롭게 입력하세요"
+                        className="w-full resize-y rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      />
+                      <span className="mt-0.5 block text-right text-xs text-zinc-400 tabular-nums">
+                        {values[key].length.toLocaleString()} / {SITE_NOTE_MAX_LENGTH.toLocaleString()}
+                      </span>
+                    </label>
                   );
                 }
                 const type = FIELD_TYPE[key];

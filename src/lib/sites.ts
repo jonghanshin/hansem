@@ -30,7 +30,11 @@ export const SITE_FIELDS = [
   { key: "정산여부", type: "text" },
   { key: "정산월", type: "text" },
   { key: "환불금액", type: "money" },
+  { key: "특이사항", type: "text" },
 ] as const satisfies readonly { key: string; type: FieldType }[];
+
+/** 특이사항 최대 글자 수 */
+export const SITE_NOTE_MAX_LENGTH = 2000;
 
 export type SiteFieldKey = (typeof SITE_FIELDS)[number]["key"];
 
@@ -137,6 +141,8 @@ export type SiteInput = {
   정산여부: string | null;
   정산월: string | null;
   환불금액: number | null;
+  /** 자유 메모 (여러 줄) */
+  특이사항: string | null;
 };
 
 export type Site = SiteInput & { id: number; created_at: string };
@@ -232,6 +238,11 @@ function toText(value: unknown): string | null {
   return s ? s : null;
 }
 
+/** 여러 줄 메모: 줄바꿈은 \n으로 통일하고 앞뒤 공백만 제거 */
+function toNote(value: unknown): string | null {
+  return toText(value === null || value === undefined ? value : String(value).replace(/\r\n?/g, "\n"));
+}
+
 /** 임의의 입력값을 검증/정규화한다. 서버 액션에서 반드시 이 함수를 거쳐 저장한다. */
 export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>): {
   data: SiteInput;
@@ -244,7 +255,7 @@ export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>):
     const value = raw[field.key];
     switch (field.type) {
       case "text":
-        data[field.key] = toText(value);
+        data[field.key] = field.key === "특이사항" ? toNote(value) : toText(value);
         break;
       case "phone":
         data[field.key] = toPhone(value);
@@ -275,6 +286,10 @@ export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>):
   // 한샘물대·한샘시공비를 나눠 입력했으면 한샘(한샘상품가액)은 두 값의 합계로 저장한다
   if (HANSEM_PARTS.some((k) => data[k] !== null)) {
     data.한샘상품가액 = HANSEM_PARTS.reduce((acc, k) => acc + ((data[k] as number | null) ?? 0), 0);
+  }
+
+  if (typeof data.특이사항 === "string" && data.특이사항.length > SITE_NOTE_MAX_LENGTH) {
+    errors.push(`특이사항은 ${SITE_NOTE_MAX_LENGTH}자 이내로 입력하세요`);
   }
 
   if (SITE_FIELDS.every((f) => data[f.key] === null)) {
