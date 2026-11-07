@@ -17,7 +17,7 @@ async function downloadXlsx(table: ExportTable, fileName: string) {
   a.download = fileName;
   document.body.appendChild(a);
   a.click();
-  a.remove();
+  a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 

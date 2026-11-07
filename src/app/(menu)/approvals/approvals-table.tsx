@@ -11,7 +11,7 @@ import {
   resubmitRequestAction,
 } from "@/app/actions";
 import type { PendingRequest, RequestKind } from "@/lib/approvals";
-import { DEPOSIT_COLUMNS, type DepositRow } from "@/lib/deposits";
+import { DEPOSIT_COLUMNS, vendorInfoAllowed, type DepositRow } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
 const REJECTED = "반려";
@@ -44,7 +44,40 @@ const FIELDS: (typeof DEPOSIT_COLUMNS)[number][] = [
   "현금영수증",
   "비고",
   "A/S",
+  // 거래처·계좌 정보: 출금일 때만 보인다 (업체계좌·대체계좌 중 저장된 쪽만 값이 있어 그쪽만 보인다)
+  "업체",
+  "업체은행",
+  "업체예금주",
+  "업체계좌번호",
+  "대체계좌 은행",
+  "대체계좌 예금주",
+  "대체계좌 번호",
 ];
+
+/** 컬럼명과 다르게 보여줄 이름 */
+const FIELD_LABELS: Partial<Record<(typeof DEPOSIT_COLUMNS)[number], string>> = {
+  현금영수증: "영수증",
+  업체은행: "업체계좌 은행",
+  업체예금주: "업체계좌 예금주",
+  업체계좌번호: "업체계좌 번호",
+};
+const fieldLabel = (f: (typeof DEPOSIT_COLUMNS)[number]) => FIELD_LABELS[f] ?? f;
+
+/**
+ * 이 요청에서 보여줄 칸: 거래처 정보(업체·계좌)는 출금일 때만 (입금 등록 화면과 같은 기준, vendorInfoAllowed)
+ */
+const visibleFields = (d: Pick<DepositRow, "입출금">) =>
+  vendorInfoAllowed(d.입출금) ? FIELDS : FIELDS.filter((f) => f !== "업체" && !ACCOUNT_FIELDS.has(f));
+
+/** 계좌 칸인지 (강조 표시용, 출금일 때만 표시) */
+const ACCOUNT_FIELDS: ReadonlySet<string> = new Set([
+  "업체은행",
+  "업체예금주",
+  "업체계좌번호",
+  "대체계좌 은행",
+  "대체계좌 예금주",
+  "대체계좌 번호",
+]);
 
 function summary(d: DepositRow & { amount: number | null }) {
   return `${d.고객명 ?? d.현장번호 ?? ""} · ${d.입출금 ?? ""} ${d.amount !== null ? formatMoney(d.amount) : (d.입금액 ?? "")}원`;
@@ -475,11 +508,13 @@ function RejectDialog({
 function FieldList({ d, strike }: { d: DepositRow; strike: boolean }) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
-      {FIELDS.filter((f) => d[f]).map((f) => (
+      {visibleFields(d).filter((f) => d[f]).map((f) => (
         <div key={f} className="contents">
-          <dt className="text-zinc-500">{f}</dt>
+          <dt className={ACCOUNT_FIELDS.has(f) ? "font-medium text-blue-700" : "text-zinc-500"}>{fieldLabel(f)}</dt>
           <dd
-            className={`min-w-0 break-words text-zinc-900 ${strike ? "text-zinc-500 line-through" : ""}`}
+            className={`min-w-0 break-words ${ACCOUNT_FIELDS.has(f) ? "font-semibold tabular-nums" : ""} ${
+              strike ? "text-zinc-500 line-through" : "text-zinc-900"
+            }`}
           >
             {d[f]}
           </dd>
@@ -493,7 +528,9 @@ function FieldList({ d, strike }: { d: DepositRow; strike: boolean }) {
 function ChangeList({ r }: { r: PendingRequest }) {
   const before = r.original;
   if (!before) return <FieldList d={r} strike={false} />;
-  const changed = FIELDS.filter((f) => (before[f] ?? null) !== (r[f] ?? null));
+  // 거래처 정보(업체·계좌)는 수정 후(또는 수정 전) 출금인 경우에만 보여준다
+  const fields = vendorInfoAllowed(r.입출금) || vendorInfoAllowed(before.입출금) ? FIELDS : visibleFields(r);
+  const changed = fields.filter((f) => (before[f] ?? null) !== (r[f] ?? null));
   return (
     <div>
       <p className="mb-1.5 text-xs text-zinc-500">
@@ -502,7 +539,7 @@ function ChangeList({ r }: { r: PendingRequest }) {
       <dl className="space-y-1 text-sm">
         {changed.map((f) => (
           <div key={f} className="flex flex-wrap items-baseline gap-x-2">
-            <dt className="w-20 shrink-0 text-zinc-500">{f}</dt>
+            <dt className={`w-28 shrink-0 ${ACCOUNT_FIELDS.has(f) ? "font-medium text-blue-700" : "text-zinc-500"}`}>{fieldLabel(f)}</dt>
             <dd className="min-w-0 break-words">
               <span className="text-zinc-500 line-through">
                 {before[f] || "(없음)"}

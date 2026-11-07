@@ -16,17 +16,36 @@ type Choice = number | typeof MANUAL | null;
  * 입금내역 컬럼 ← 화면 이름 (요약·입력 칸 순서).
  * 공정은 위에서 고른 값으로 고정되고, 나머지는 목록에서 골라도 모두 고칠 수 있다.
  */
-export const VENDOR_INFO_LABELS: { key: VendorInfoKey; label: string; multiline?: boolean; tel?: boolean }[] = [
+export const VENDOR_INFO_LABELS: {
+  key: VendorInfoKey;
+  label: string;
+  multiline?: boolean;
+  tel?: boolean;
+  /** 계좌 칸: main = 업체계좌, alt = 대체계좌 (고른 계좌의 칸만 보여주고 저장한다) */
+  account?: AccountType;
+}[] = [
   { key: "공정", label: "공정" },
   { key: "주요작업", label: "세부공정", multiline: true },
   { key: "업체", label: "업체" },
   { key: "업체담당자성함", label: "업체담당자 이름" },
   { key: "업체담당자연락처", label: "업체담당자 연락처", tel: true },
-  { key: "업체은행", label: "은행명" },
-  { key: "업체예금주", label: "예금주" },
-  { key: "업체계좌번호", label: "계좌번호" },
+  { key: "업체은행", label: "은행명", account: "main" },
+  { key: "업체예금주", label: "예금주", account: "main" },
+  { key: "업체계좌번호", label: "계좌번호", account: "main" },
+  { key: "대체계좌 은행", label: "대체계좌 은행", account: "alt" },
+  { key: "대체계좌 예금주", label: "대체계좌 예금주", account: "alt" },
+  { key: "대체계좌 번호", label: "대체계좌 번호", account: "alt" },
   { key: "업체비고", label: "업체비고", multiline: true },
 ];
+
+export type AccountType = "main" | "alt";
+const ACCOUNT_LABEL: Record<AccountType, string> = { main: "업체계좌", alt: "대체계좌" };
+const accountKeys = (t: AccountType) => VENDOR_INFO_LABELS.filter((l) => l.account === t).map((l) => l.key);
+
+/** 저장된 거래처 정보가 어느 계좌를 쓰는지: 대체계좌 값이 있으면 대체계좌, 아니면 업체계좌 */
+export function accountTypeOf(info: VendorInfo): AccountType {
+  return accountKeys("alt").some((k) => info[k]?.trim()) ? "alt" : "main";
+}
 
 const INPUT =
   "w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20";
@@ -42,6 +61,9 @@ function rowToInfo(process: string, row: KnowledgeRow, fallbackWork: string | nu
     업체은행: str(row.업체은행),
     업체예금주: str(row.업체예금주),
     업체계좌번호: str(row.업체계좌번호),
+    "대체계좌 은행": str(row["대체계좌 은행"]),
+    "대체계좌 예금주": str(row["대체계좌 예금주"]),
+    "대체계좌 번호": str(row["대체계좌 번호"]),
     업체비고: str(row.업체비고),
   };
 }
@@ -71,6 +93,8 @@ export function VendorPickerDialog({
   const [form, setForm] = useState<VendorInfo>(current);
   /** 직접 입력하던 값 (목록 선택과 오가도 잃지 않게) */
   const [manual, setManual] = useState<VendorInfo>(current);
+  /** 입금할 계좌: 업체계좌 / 대체계좌 (다시 열면 저장된 값으로 판단) */
+  const [accountType, setAccountType] = useState<AccountType>(() => accountTypeOf(current));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -114,7 +138,11 @@ export function VendorPickerDialog({
   function chooseRow(row: KnowledgeRow) {
     setError(null);
     setChoice(row.id);
-    setForm(rowToInfo(process, row, processInfo?.주요작업));
+    const info = rowToInfo(process, row, processInfo?.주요작업);
+    setForm(info);
+    // 업체계좌가 비어 있고 대체계좌만 있는 거래처면 대체계좌를 골라 둔다 (언제든 바꿀 수 있음)
+    const hasMain = accountKeys("main").some((k) => info[k].trim());
+    if (!hasMain && accountTypeOf(info) === "alt") setAccountType("alt");
   }
 
   function chooseManual() {
@@ -130,6 +158,8 @@ export function VendorPickerDialog({
     if (!result) return;
     // 업체명은 선택 사항 (공정별거래처에 업체명 없이 등록된 행도 고를 수 있다)
     const trimmed = Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.trim()])) as VendorInfo;
+    // 고르지 않은 계좌의 칸은 비워서 저장한다 (저장된 값만 보고 어느 계좌로 보낼지 알 수 있게)
+    for (const k of accountKeys(accountType === "main" ? "alt" : "main")) trimmed[k] = "";
     onSelect(trimmed);
   }
 
@@ -263,7 +293,40 @@ export function VendorPickerDialog({
                     <span className="ml-1 font-normal text-zinc-500">· 입금내역에 이 값으로 저장됩니다. 각 항목을 고칠 수 있습니다 (공정별거래처 원본은 바뀌지 않음)</span>
                   </h3>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {VENDOR_INFO_LABELS.map(({ key, label, multiline, tel }) => {
+                    {VENDOR_INFO_LABELS.map(({ key, label, multiline, tel, account }) => {
+                      // 계좌 칸: 고른 계좌의 칸만 보여주고, 첫 계좌 칸 자리에 업체계좌/대체계좌 선택을 둔다
+                      if (account && account !== accountType) return null;
+                      const accountPicker =
+                        account && key === accountKeys(accountType)[0] ? (
+                          <fieldset key="account-type" className="sm:col-span-2">
+                            <legend className="mb-1 text-xs font-medium text-zinc-700">계좌 선택</legend>
+                            <div className="flex gap-2" role="radiogroup">
+                              {(["main", "alt"] as const).map((t) => {
+                                const filled = accountKeys(t).some((k) => form[k].trim());
+                                return (
+                                  <label
+                                    key={t}
+                                    className={`flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium ${
+                                      accountType === t
+                                        ? "border-blue-500 bg-blue-50 text-blue-800"
+                                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                                    }`}
+                                  >
+                                    <input
+                                      type="radio"
+                                      name={`${idp}-account`}
+                                      checked={accountType === t}
+                                      onChange={() => setAccountType(t)}
+                                      className="accent-blue-600"
+                                    />
+                                    {ACCOUNT_LABEL[t]}
+                                    {!filled && <span className="text-xs font-normal text-zinc-400">(정보 없음)</span>}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </fieldset>
+                        ) : null;
                       // 공정 외 모두 입력·수정 가능 (목록에서 고른 경우 그 행 값으로 채워진 상태에서 고친다)
                       const editable = key !== "공정";
                       const wide = multiline ? "sm:col-span-2" : undefined;
@@ -277,7 +340,7 @@ export function VendorPickerDialog({
                           </div>
                         );
                       }
-                      return (
+                      const field = (
                         <label key={key} className={wide}>
                           <span className="mb-1 block text-xs font-medium text-zinc-700">
                             {label}
@@ -302,6 +365,7 @@ export function VendorPickerDialog({
                           )}
                         </label>
                       );
+                      return accountPicker ? [accountPicker, field] : field;
                     })}
                   </div>
                 </section>
@@ -341,9 +405,15 @@ export function VendorPickerDialog({
 
 /** 거래처 정보 요약 (공정 / 세부공정 / 업체 / 담당자 / 연락처 / 업체비고) */
 export function VendorInfoSummary({ info }: { info: VendorInfo }) {
+  const type = accountTypeOf(info);
   return (
     <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1 text-sm">
-      {VENDOR_INFO_LABELS.map(({ key, label }) => (
+      <div className="contents">
+        <dt className="text-zinc-500">계좌</dt>
+        <dd className="font-medium text-zinc-900">{ACCOUNT_LABEL[type]}</dd>
+      </div>
+      {/* 고른 계좌의 칸만 보여준다 */}
+      {VENDOR_INFO_LABELS.filter((l) => !l.account || l.account === type).map(({ key, label }) => (
         <div key={key} className="contents">
           <dt className="text-zinc-500">{label}</dt>
           <dd className={`min-w-0 whitespace-pre-line break-words ${key === "공정" || key === "업체" ? "font-medium text-zinc-900" : "text-zinc-700"}`}>
@@ -368,6 +438,7 @@ function VendorOption({
 }) {
   const person = [str(v.업체담당자성함), str(v.직책)].filter(Boolean).join(" ");
   const account = [str(v.업체은행), str(v.업체계좌번호), str(v.업체예금주)].filter(Boolean).join(" ");
+  const altAccount = [str(v["대체계좌 은행"]), str(v["대체계좌 번호"]), str(v["대체계좌 예금주"])].filter(Boolean).join(" ");
   return (
     <li>
       <label
@@ -386,6 +457,7 @@ function VendorOption({
           {str(v["세부 업무"]) && <p className="mt-0.5 whitespace-pre-line text-zinc-600">세부 업무: {str(v["세부 업무"])}</p>}
           {str(v.업체비고) && <p className="mt-0.5 whitespace-pre-line text-xs text-zinc-500">비고: {str(v.업체비고)}</p>}
           {account && <p className="mt-0.5 text-xs text-zinc-500">계좌: {account}</p>}
+          {altAccount && <p className="mt-0.5 text-xs text-zinc-500">대체계좌: {altAccount}</p>}
           {str(v["계좌 사용 구분"]) && <p className="mt-0.5 text-xs text-zinc-500">계좌 사용: {str(v["계좌 사용 구분"])}</p>}
         </div>
       </label>

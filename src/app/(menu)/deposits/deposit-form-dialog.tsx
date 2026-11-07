@@ -16,6 +16,8 @@ import {
   depositToInput,
   EMPTY_VENDOR_INFO,
   VENDOR_INFO_COLUMNS,
+  receiptAllowed,
+  vendorInfoAllowed,
   type Deposit,
   type DepositCategory,
   type DepositInput,
@@ -122,6 +124,10 @@ export function DepositFormDialog({
     : null;
   const needsKind = rule?.입출금 === null; // 홈씨씨창호: 입금/출금을 직접 선택 (필수)
   const kind = rule ? (rule.입출금 ?? values.입출금) : "";
+  // 거래처 정보는 출금일 때만 보여준다 (입금이면 숨기고, 입력해 둔 값은 저장 시 서버에서 비움)
+  const showVendor = vendorInfoAllowed(kind);
+  // 영수증은 입금일 때만 보여준다 (출금이면 숨기고, 서버에서도 받지 않음)
+  const showReceipt = receiptAllowed(kind);
   const needsContent = rule?.입금내용 === null; // 한샘 외 시공비, 거래처환불
   const needsVendor = rule?.입금자 === "vendor"; // 거래처환불
   // 저장될 입금자 미리보기 (실제 값은 서버에서 정함: 한샘물대·한샘시공비 = 현장정보 고객명, 그 외 = 나비지급)
@@ -390,6 +396,7 @@ export function DepositFormDialog({
                   className={INPUT}
                 />
               </label>
+              {showReceipt && (
               <label className="col-span-2">
                 <Label required={!isEdit}>영수증</Label>
                 <select
@@ -412,7 +419,8 @@ export function DepositFormDialog({
                   ))}
                 </select>
               </label>
-              {notNeeded && (
+              )}
+              {showReceipt && notNeeded && (
                 <label className="col-span-2 sm:col-span-4">
                   <Label required>발급불필요 사유</Label>
                   <input
@@ -439,6 +447,8 @@ export function DepositFormDialog({
               </label>
             </div>
           </fieldset>
+          {/* 거래처 정보는 출금일 때만 */}
+          {showVendor && (
           <fieldset>
             <legend className="mb-2 text-xs font-semibold tracking-wide text-zinc-500">
               거래처 정보
@@ -475,6 +485,7 @@ export function DepositFormDialog({
               </button>
             )}
           </fieldset>
+          )}
         </div>
 
         <div className="border-t border-zinc-200 px-5 py-3">

@@ -1,11 +1,13 @@
 // 엑셀 내보내기용 표 데이터 만들기 (순수 함수: 브라우저/서버/테스트 공용)
 
 import type { Deposit } from "@/lib/deposits";
+import { KNOWLEDGE_TABLES, type KnowledgeRow, type KnowledgeTableKey } from "@/lib/knowledge-shared";
 import { formatPhone, SITE_FIELDS, type Site } from "@/lib/sites";
 
-export type ExportColumnType = "text" | "money" | "date";
+export type ExportColumnType = "text" | "money" | "date" | "number";
 
-export type ExportColumn = { header: string; type: ExportColumnType; width: number };
+/** wrap: 여러 줄 내용(줄바꿈)을 셀 안에서 줄바꿈해 보여준다 */
+export type ExportColumn = { header: string; type: ExportColumnType; width: number; wrap?: boolean };
 
 /** date 열 값은 "YYYY-MM-DD" 문자열, money 열 값은 숫자 */
 export type ExportCell = string | number | null;
@@ -58,6 +60,9 @@ const DEPOSIT_COLUMNS: { key: keyof Deposit; header: string; type: ExportColumnT
   { key: "업체은행", header: "업체은행", type: "text" },
   { key: "업체예금주", header: "업체예금주", type: "text" },
   { key: "업체계좌번호", header: "업체계좌번호", type: "text" },
+  { key: "대체계좌 은행", header: "대체계좌 은행", type: "text" },
+  { key: "대체계좌 예금주", header: "대체계좌 예금주", type: "text" },
+  { key: "대체계좌 번호", header: "대체계좌 번호", type: "text" },
   { key: "업체비고", header: "업체비고", type: "text" },
 ];
 
@@ -90,6 +95,31 @@ export function depositExportTable(deposits: Deposit[]): ExportTable {
     }),
   );
   return { sheetName: "입금내역", columns, rows };
+}
+
+/** 화면 칸 폭("14rem") → 엑셀 열 폭(글자 수). 너무 넓어지지 않게 50으로 제한 */
+function remToWidth(width: string | undefined): number {
+  const rem = Number.parseFloat(width ?? "");
+  return Number.isFinite(rem) ? Math.min(50, Math.max(8, Math.round(rem * 1.8))) : 16;
+}
+
+/** 지식자산(공정별거래처·타공정거래처·공정표) → 엑셀. 컬럼과 순서는 화면 목록과 같다 */
+export function knowledgeExportTable(key: KnowledgeTableKey, rows: KnowledgeRow[]): ExportTable {
+  const cfg = KNOWLEDGE_TABLES[key];
+  const columns: ExportColumn[] = cfg.columns.map((c) => ({
+    header: c.key,
+    type: c.type === "int" ? "number" : "text",
+    width: remToWidth(c.width),
+    wrap: c.multiline,
+  }));
+  const data = rows.map((r) =>
+    cfg.columns.map((c): ExportCell => {
+      const v = r[c.key];
+      if (v === null || v === undefined || v === "") return null;
+      return c.type === "int" ? (typeof v === "number" ? v : Number(v)) : String(v);
+    }),
+  );
+  return { sheetName: cfg.label, columns, rows: data };
 }
 
 /** 파일명: 현장정보_20261105.xlsx */

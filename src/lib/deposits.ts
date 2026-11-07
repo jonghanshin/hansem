@@ -29,6 +29,10 @@ export type DepositRow = {
   업체은행: string | null;
   업체예금주: string | null;
   업체계좌번호: string | null;
+  /** 대체계좌 (공정별거래처의 대체계좌를 함께 저장) */
+  "대체계좌 은행": string | null;
+  "대체계좌 예금주": string | null;
+  "대체계좌 번호": string | null;
 };
 
 /** 거래처 정보 컬럼 (입금내역·승인필요입금내역 공통) */
@@ -41,6 +45,9 @@ export const VENDOR_INFO_COLUMNS = [
   "업체은행",
   "업체예금주",
   "업체계좌번호",
+  "대체계좌 은행",
+  "대체계좌 예금주",
+  "대체계좌 번호",
   "업체비고",
 ] as const;
 export type VendorInfoKey = (typeof VENDOR_INFO_COLUMNS)[number];
@@ -192,6 +199,19 @@ function cashReceiptToInput(value: string | null): string {
   return "";
 }
 
+/**
+ * 거래처 정보(업체·계좌)는 출금일 때만 받는다.
+ * 입금이거나 아직 입금/출금이 정해지지 않았으면 입금 화면에서 거래처 정보 칸을 숨기고, 저장 시 비운다.
+ */
+export function vendorInfoAllowed(kind: string | null | undefined): boolean {
+  return (kind ?? "").trim() === "출금";
+}
+
+/** 영수증(현금영수증 컬럼)은 입금일 때만 받는다. 출금이거나 아직 정해지지 않았으면 입금 화면에서 숨긴다 */
+export function receiptAllowed(kind: string | null | undefined): boolean {
+  return (kind ?? "").trim() === "입금";
+}
+
 /** 한샘 외 시공비 출금의 입금자 */
 export const NABI_PAYER = "나비지급";
 
@@ -312,8 +332,11 @@ export function normalizeDepositInput(
   const 거래처 = rule?.입금자 === "vendor" ? text(raw.거래처) : null;
   if (rule?.입금자 === "vendor" && !거래처) errors.push(`${구분}: 거래처를 입력하세요`);
 
-  const 현금영수증 = text(raw.현금영수증);
-  if (현금영수증 ? !(CASH_RECEIPT_OPTIONS as readonly string[]).includes(현금영수증) : requireCashReceipt) {
+  // 영수증은 입금일 때만 받는다 (등록 시 필수). 출금이면 화면에서 숨긴 칸에 남은 값도 쓰지 않는다
+  // (수정이면 null → 기존 값 유지, 새로 등록이면 비어 있음)
+  const withReceipt = receiptAllowed(입출금);
+  const 현금영수증 = withReceipt ? text(raw.현금영수증) : null;
+  if (현금영수증 ? !(CASH_RECEIPT_OPTIONS as readonly string[]).includes(현금영수증) : requireCashReceipt && withReceipt) {
     errors.push(`영수증은 ${CASH_RECEIPT_OPTIONS.join(", ")} 중에서 선택하세요`);
   }
 
@@ -333,7 +356,11 @@ export function normalizeDepositInput(
   }
 
   // 거래처 정보 (선택). 공정별거래처에서 고른 값을 그대로 저장한다 (입력한 경우에만 저장)
-  const vendor = Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, text(raw[c])])) as Record<VendorInfoKey, string | null>;
+  // 거래처 정보는 출금일 때만 저장한다 (입금이면 화면에서 숨긴 칸에 남은 값도 저장하지 않음)
+  const withVendor = vendorInfoAllowed(입출금);
+  const vendor = Object.fromEntries(
+    VENDOR_INFO_COLUMNS.map((c) => [c, withVendor ? text(raw[c]) : null]),
+  ) as Record<VendorInfoKey, string | null>;
   for (const c of VENDOR_INFO_COLUMNS) {
     if ((vendor[c]?.length ?? 0) > VENDOR_INFO_MAX_LENGTH) errors.push(`${c}은(는) ${VENDOR_INFO_MAX_LENGTH}자 이내여야 합니다`);
   }

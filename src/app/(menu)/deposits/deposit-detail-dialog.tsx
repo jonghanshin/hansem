@@ -28,6 +28,7 @@ export function DepositDetailDialog({
   const isOut = d.입출금 === "출금";
   const date = d.dateIso && d.dateIso !== d.날짜 ? `${d.dateIso} (${d.날짜})` : (d.dateIso ?? d.날짜);
 
+  const altAccount = !!(d["대체계좌 은행"]?.trim() || d["대체계좌 예금주"]?.trim() || d["대체계좌 번호"]?.trim());
   const rows: [string, React.ReactNode][] = [
     ["날짜", date],
     ["현장번호", d.현장번호],
@@ -46,9 +47,20 @@ export function DepositDetailDialog({
     ["업체", d.업체],
     ["업체담당자", d.업체담당자성함],
     ["업체연락처", d.업체담당자연락처],
-    ["은행명", d.업체은행],
-    ["예금주", d.업체예금주],
-    ["계좌번호", d.업체계좌번호],
+    // 업체계좌·대체계좌 중 저장된 쪽만 보여준다 (대체계좌 값이 있으면 대체계좌)
+    ...((altAccount
+      ? [
+          ["계좌", "대체계좌"],
+          ["대체계좌 은행", d["대체계좌 은행"]],
+          ["대체계좌 예금주", d["대체계좌 예금주"]],
+          ["대체계좌 번호", d["대체계좌 번호"]],
+        ]
+      : [
+          ["계좌", d.업체은행 || d.업체예금주 || d.업체계좌번호 ? "업체계좌" : null],
+          ["은행명", d.업체은행],
+          ["예금주", d.업체예금주],
+          ["계좌번호", d.업체계좌번호],
+        ]) as [string, React.ReactNode][]),
     ["업체비고", d.업체비고],
   ];
 

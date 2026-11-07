@@ -12,7 +12,11 @@ export async function buildXlsx(ExcelJS: typeof ExcelJSModule, table: ExportTabl
   sheet.columns = table.columns.map((c) => ({
     header: c.header,
     width: c.width,
-    style: c.type === "money" ? { numFmt: "#,##0" } : c.type === "date" ? { numFmt: "yyyy-mm-dd" } : { numFmt: "@" },
+    style: {
+      numFmt: c.type === "money" ? "#,##0" : c.type === "date" ? "yyyy-mm-dd" : c.type === "number" ? "0" : "@",
+      // 여러 줄 내용은 셀 안에서 줄바꿈해 보이게 하고 위쪽 정렬
+      ...(c.wrap && { alignment: { wrapText: true, vertical: "top" as const } }),
+    },
   }));
   for (const row of table.rows) {
     sheet.addRow(

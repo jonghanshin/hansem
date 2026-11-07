@@ -2,7 +2,9 @@
 
 import { useId, useMemo, useState, useTransition } from "react";
 
+import { ExportButton } from "@/app/export-button";
 import { deleteKnowledgeRowAction, saveKnowledgeRowAction } from "@/app/knowledge-actions";
+import { knowledgeExportTable } from "@/lib/export-rows";
 import { KNOWLEDGE_TABLES, type KnowledgeInput, type KnowledgeRow, type KnowledgeTableKey } from "@/lib/knowledge-shared";
 
 const INPUT =
@@ -62,13 +64,17 @@ export function KnowledgeTable({ tableKey, rows }: { tableKey: KnowledgeTableKey
             {notice}
           </span>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          {/* 현재 검색어·공정 조건에 맞는 행을 화면과 같은 컬럼 순서로 내보낸다 */}
+          <ExportButton count={filtered.length} fileBase={cfg.label} build={() => knowledgeExportTable(tableKey, filtered)} />
+        </div>
         <button
           type="button"
           onClick={() => {
             setNotice(null);
             setEditing(null);
           }}
-          className="ml-auto rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
         >
           + 추가
         </button>
