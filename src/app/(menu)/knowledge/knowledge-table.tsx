@@ -176,7 +176,15 @@ function RowDialog({
   }
 
   function remove() {
-    if (!row || !confirm("이 행을 삭제할까요? 삭제하면 되돌릴 수 없습니다.")) return;
+    if (!row) return;
+    // 어떤 행인지 알아볼 수 있게 대표 값(공정·업체 등)을 함께 보여준다
+    const label = ["공정", "업체", "업체·소속", "주요 작업", "성함", "업체담당자성함"]
+      .map((k) => cellText(row[k]).trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(" · ");
+    const warning = `⚠ ${cfg.label}에서 이 행을 삭제합니다.${label ? `\n\n${label}` : ""}\n\n삭제하면 되돌릴 수 없습니다. 삭제하시겠습니까?`;
+    if (!confirm(warning)) return;
     setError(null);
     startTransition(async () => {
       const res = await deleteKnowledgeRowAction(tableKey, row.id);
