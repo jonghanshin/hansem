@@ -327,6 +327,16 @@ export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>):
   return { data: data as SiteInput, errors };
 }
 
+/** 부가세(10%)를 더한 금액, 원 단위 반올림 */
+export function withVat(amount: number): number {
+  return Math.round((amount * 11) / 10);
+}
+
+/** 부가세(10%)가 포함된 금액에서 부가세를 뺀 금액, 원 단위 반올림 */
+export function withoutVat(amount: number): number {
+  return Math.round((amount * 10) / 11);
+}
+
 export function formatMoney(n: number | null | undefined): string {
   return n === null || n === undefined ? "" : n.toLocaleString("ko-KR");
 }

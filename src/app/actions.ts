@@ -40,6 +40,7 @@ import {
   type DepositRecord,
   type DepositRow,
 } from "@/lib/deposits";
+import { plainCellValue } from "@/lib/excel-cells";
 import { fetchDeposits, fetchExistingSiteNumbers, fetchSites, siteNumberInScope } from "@/lib/sites-data";
 import { DEPOSITS_TABLE, getSupabaseAdmin, SITES_TABLE } from "@/lib/supabase-admin";
 
@@ -443,17 +444,6 @@ export type ExcelPreview = {
   matchedColumns: SiteFieldKey[];
   ignoredColumns: string[];
 };
-
-/** exceljs 셀 값을 단순 값(문자열/숫자/Date)으로 변환 */
-function plainCellValue(value: ExcelJS.CellValue): unknown {
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date || typeof value !== "object") return value;
-  if ("richText" in value) return value.richText.map((t) => t.text).join("");
-  if ("result" in value) return plainCellValue(value.result as ExcelJS.CellValue);
-  if ("text" in value) return value.text;
-  if ("error" in value) return null;
-  return null;
-}
 
 export async function parseExcelAction(formData: FormData): Promise<ActionResult<ExcelPreview>> {
   const auth = await authorizeAction();

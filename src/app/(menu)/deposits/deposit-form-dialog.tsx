@@ -17,6 +17,9 @@ import {
   EMPTY_VENDOR_INFO,
   VENDOR_INFO_COLUMNS,
   receiptAllowed,
+  VAT_DEFAULT,
+  VAT_OPTIONS,
+  vatChoiceRequired,
   vendorInfoAllowed,
   type Deposit,
   type DepositCategory,
@@ -73,6 +76,7 @@ export function DepositFormDialog({
           거래처: "",
           현금영수증: "",
           현금영수증사유: "",
+          부가세포함: VAT_DEFAULT,
           "A/S": "",
           ...EMPTY_VENDOR_INFO,
         },
@@ -396,6 +400,18 @@ export function DepositFormDialog({
                   className={INPUT}
                 />
               </label>
+              {vatChoiceRequired(values.구분) && (
+                <label className="col-span-2">
+                  <Label required>부가세 포함</Label>
+                  <select value={values.부가세포함} onChange={(e) => set("부가세포함", e.target.value)} required className={INPUT}>
+                    {VAT_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {showReceipt && (
               <label className="col-span-2">
                 <Label required={!isEdit}>영수증</Label>

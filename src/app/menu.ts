@@ -21,6 +21,15 @@ export const MENU = [
   },
 ] as const;
 
+/** 관리자 이상(CEO·관리자·슈퍼관리자)에게만 보이는 메뉴. 화면에서도 권한을 다시 확인한다 */
+export const MANAGER_MENU = [
+  {
+    href: "/settlement",
+    label: "정산",
+    description: "영업사원·정산월별 미정산 현장을 골라 현장별 입금·출금 정산",
+  },
+] as const;
+
 /** 슈퍼관리자에게만 보이는 메뉴. 화면에서도 권한을 다시 확인한다 */
 export const ADMIN_MENU = [
   {
