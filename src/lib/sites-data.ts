@@ -67,7 +67,7 @@ export async function fetchSiteSummaries(scope: DataScope): Promise<SiteSummary[
 
 /** 범위 내에 해당 현장번호의 현장이 있는지 (다른 영업사원 현장의 근거 내역 조회 차단용) */
 export async function siteNumberInScope(siteNumber: string, scope: DataScope): Promise<boolean> {
-  if (scope.salesName == null) return true;
+  if (scope.salesName == null && !scope.hidePrivateSites) return true;
   const { count, error } = await applyScope(
     getSupabaseAdmin().from(SITES_TABLE).select("id", { count: "exact", head: true }).eq("현장번호", siteNumber),
     scope,

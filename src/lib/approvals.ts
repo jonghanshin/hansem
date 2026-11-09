@@ -16,6 +16,7 @@ import {
   type DepositRow,
   type Parsed,
 } from "@/lib/deposits";
+import { applySiteVisibility, type DataScope } from "@/lib/data-scope";
 import { AUTH_TABLE, DEPOSITS_TABLE, getSupabaseAdmin, PENDING_DEPOSITS_TABLE } from "@/lib/supabase-admin";
 
 export const STATUS_PENDING = "승인대기";
@@ -75,11 +76,14 @@ export async function insertRequest(
 }
 
 /** 승인 대기 건수. requester를 주면 그 사람이 요청한 건만 센다 */
-export async function countPendingRequests(requester?: number): Promise<number> {
-  let query = getSupabaseAdmin()
-    .from(PENDING_DEPOSITS_TABLE)
-    .select("id", { count: "exact", head: true })
-    .eq("승인여부", STATUS_PENDING);
+export async function countPendingRequests(scope: DataScope, requester?: number): Promise<number> {
+  let query = applySiteVisibility(
+    getSupabaseAdmin()
+      .from(PENDING_DEPOSITS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .eq("승인여부", STATUS_PENDING),
+    scope,
+  );
   if (requester !== undefined) query = query.eq("요청자", requester);
   const { count, error } = await query;
   if (error) throw new Error(`승인 대기 건수 조회 실패: ${error.message}`);
@@ -126,11 +130,12 @@ export async function hasPendingRequestFor(depositId: number): Promise<boolean> 
  * statuses로 승인대기 외 상태(예: 반려)도 함께 가져올 수 있다.
  */
 export async function fetchPendingRequests(
+  scope: DataScope,
   requester?: number,
   statuses: string[] = [STATUS_PENDING],
 ): Promise<PendingRequest[]> {
   const sb = getSupabaseAdmin();
-  let query = sb.from(PENDING_DEPOSITS_TABLE).select(REQUEST_COLUMNS).in("승인여부", statuses);
+  let query = applySiteVisibility(sb.from(PENDING_DEPOSITS_TABLE).select(REQUEST_COLUMNS).in("승인여부", statuses), scope);
   if (requester !== undefined) query = query.eq("요청자", requester);
   const { data, error } = await query
     .order("요청일시")
@@ -244,17 +249,27 @@ export async function loadRejectedRequest(id: number, requester: number): Promis
   return data as unknown as RequestRecord | null;
 }
 
-/** 요청자 본인의 반려된 요청을 지운다 (다시 요청하지 않을 건 정리용). 지웠으면 true */
-export async function deleteRejectedRequest(id: number, requester: number): Promise<boolean> {
+/** 요청자 본인의 해당 상태 요청을 지운다. 지웠으면 true (상태 조건으로 이미 처리된 요청은 지우지 않는다) */
+async function deleteOwnRequest(id: number, requester: number, status: string): Promise<boolean> {
   const { data, error } = await getSupabaseAdmin()
     .from(PENDING_DEPOSITS_TABLE)
     .delete()
     .eq("id", id)
     .eq("요청자", requester)
-    .eq("승인여부", STATUS_REJECTED)
+    .eq("승인여부", status)
     .select("id");
-  if (error) throw new Error(`반려 건 삭제 실패: ${error.message}`);
+  if (error) throw new Error(`요청 삭제 실패: ${error.message}`);
   return (data ?? []).length > 0;
+}
+
+/** 요청자 본인의 반려된 요청을 지운다 (다시 요청하지 않을 건 정리용). 지웠으면 true */
+export function deleteRejectedRequest(id: number, requester: number): Promise<boolean> {
+  return deleteOwnRequest(id, requester, STATUS_REJECTED);
+}
+
+/** 요청자 본인의 승인 대기 요청을 취소(삭제)한다. 지웠으면 true */
+export function cancelPendingRequest(id: number, requester: number): Promise<boolean> {
+  return deleteOwnRequest(id, requester, STATUS_PENDING);
 }
 
 /**

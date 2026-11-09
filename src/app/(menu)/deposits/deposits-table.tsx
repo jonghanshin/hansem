@@ -8,7 +8,7 @@ import { Pagination, scrollToListTop, usePagination } from "@/app/pagination";
 import { depositExportTable } from "@/lib/export-rows";
 
 import type { RequestKind } from "@/lib/approvals";
-import { DEPOSIT_TYPES, type Deposit } from "@/lib/deposits";
+import { DEPOSIT_TYPES, depositDateText, needsCorrection, type Deposit } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
 import { DepositDetailDialog } from "./deposit-detail-dialog";
@@ -122,7 +122,7 @@ export function DepositsTable({
     const { 현장상태, 현장번호, 고객명, 영업사원, 입금자, 입금구분, dateFrom, dateTo } = filters;
     const hasDateFilter = !!(dateFrom || dateTo);
     const isDone = (d: Deposit) => doneSites.has(d.현장번호?.trim() ?? "");
-    return deposits.filter(
+    const rows = deposits.filter(
       (d) =>
         (현장상태 === "all" || (현장상태 === "done") === isDone(d)) &&
         (kind === "전체" || d.입출금 === kind) &&
@@ -135,6 +135,8 @@ export function DepositsTable({
         (!hasDateFilter ||
           (d.dateIso !== null && (!dateFrom || d.dateIso >= dateFrom) && (!dateTo || d.dateIso <= dateTo))),
     );
+    // 수정필요 행을 맨 위로 (그 안에서는 기존 날짜 순서 유지)
+    return rows.sort((a, b) => Number(needsCorrection(b)) - Number(needsCorrection(a)));
   }, [deposits, filters, kind, doneSites]);
 
   const paging = usePagination(filtered);
@@ -449,7 +451,7 @@ export function DepositsTable({
           {paging.pageItems.map((d) => {
             const isIn = d.입출금 === "입금";
             const isOut = d.입출금 === "출금";
-            const detail = [d.입금자, d.입금내용].filter(Boolean).join(" · ");
+            const detail = [d.입금자, d.업체, d.입금내용].filter(Boolean).join(" · ");
             return (
               <li
                 key={d.id}
@@ -457,7 +459,9 @@ export function DepositsTable({
                 onKeyDown={(e) => onRowKey(e, d)}
                 tabIndex={0}
                 title="더블클릭하면 상세 내용을 봅니다"
-                className="cursor-pointer px-4 py-3 select-none focus-visible:bg-blue-50 focus-visible:outline-none"
+                className={`cursor-pointer px-4 py-3 select-none focus-visible:bg-blue-50 focus-visible:outline-none ${
+                  needsCorrection(d) ? "bg-red-50 [&_*]:text-red-700" : ""
+                }`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-1.5">
@@ -477,7 +481,7 @@ export function DepositsTable({
                     <span className="font-medium text-zinc-900">{d.고객명 ?? "—"}</span>{" "}
                     <span className="text-xs text-zinc-500 tabular-nums">{d.현장번호}</span>
                   </p>
-                  <span className="shrink-0 text-xs text-zinc-500 tabular-nums">{d.dateIso ?? d.날짜}</span>
+                  <span className="shrink-0 text-xs text-zinc-500 tabular-nums">{depositDateText(d)}</span>
                 </div>
                 {(detail || d.영업사원) && (
                   <p className="mt-0.5 text-xs text-zinc-500">
@@ -502,6 +506,7 @@ export function DepositsTable({
               <Th>입출금</Th>
               <Th right>금액</Th>
               <Th>입금자</Th>
+              <Th>거래처</Th>
               <Th>입금내용</Th>
               <Th>입금구분</Th>
               <Th>현금영수증</Th>
@@ -519,9 +524,11 @@ export function DepositsTable({
                   onKeyDown={(e) => onRowKey(e, d)}
                   tabIndex={0}
                   title="더블클릭하면 상세 내용을 봅니다"
-                  className="cursor-pointer select-none hover:bg-zinc-50 focus-visible:bg-blue-50 focus-visible:outline-none"
+                  className={`cursor-pointer select-none focus-visible:bg-blue-50 focus-visible:outline-none ${
+                    needsCorrection(d) ? "bg-red-50 hover:bg-red-100 [&_*]:text-red-700" : "hover:bg-zinc-50"
+                  }`}
                 >
-                  <Td mono>{d.dateIso ?? d.날짜}</Td>
+                  <Td mono>{depositDateText(d)}</Td>
                   <Td mono>{d.현장번호}</Td>
                   <Td strong>{d.고객명}</Td>
                   <Td>{d.영업사원}</Td>
@@ -536,6 +543,7 @@ export function DepositsTable({
                     {d.amount !== null ? formatMoney(d.amount) : d.입금액}
                   </td>
                   <Td>{d.입금자}</Td>
+                  <Td>{d.업체}</Td>
                   <td className="max-w-72 truncate px-3 py-2 text-zinc-700" title={d.입금내용 ?? ""}>
                     {d.입금내용}
                   </td>

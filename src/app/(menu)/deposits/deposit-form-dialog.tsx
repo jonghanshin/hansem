@@ -30,9 +30,11 @@ import { formatMoney, type SiteSummary } from "@/lib/sites";
 
 import { VendorInfoSummary, VendorPickerDialog } from "./vendor-picker-dialog";
 
-function todayIso() {
+/** 기기의 현재 날짜·시간 (입력 칸 형식) */
+function nowLocal() {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 export function DepositFormDialog({
@@ -71,7 +73,7 @@ export function DepositFormDialog({
           구분: "",
           입출금: "",
           입금액: "",
-          날짜: todayIso(),
+          날짜: nowLocal(),
           입금내용: "",
           거래처: "",
           현금영수증: "",
@@ -391,9 +393,9 @@ export function DepositFormDialog({
                 </label>
               )}
               <label className="col-span-2">
-                <Label required>날짜</Label>
+                <Label required>날짜·시간</Label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   value={values.날짜}
                   onChange={(e) => set("날짜", e.target.value)}
                   required

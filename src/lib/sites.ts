@@ -218,7 +218,8 @@ export function toIsoDate(value: unknown): string | null | undefined {
   }
   const s = String(value).trim();
   if (!s) return null;
-  const m = s.match(/^(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})\s*일?$/);
+  // 날짜 뒤에 시간이 붙어 있어도("2026년 11월 09일 14:30", "2026-11-09T14:30") 날짜만 읽는다
+  const m = s.match(/^(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})\s*일?(?:[T\s]+\d{1,2}:\d{2}(?::\d{2})?)?$/);
   if (!m) return undefined;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (!isValidYmd(y, mo, d)) return undefined;

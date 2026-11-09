@@ -24,7 +24,7 @@ export default function DashboardPage() {
   );
 }
 
-const ALL = { salesName: null }; // 관리자: 전체 데이터
+const ALL = { salesName: null, hidePrivateSites: false }; // 슈퍼관리자 전용 화면: 전체 데이터
 
 async function DashboardLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다

@@ -13,6 +13,17 @@ type Panel = { kind: "none" } | { kind: "create" } | { kind: "edit"; id: number 
 
 const SEARCH_KEYS = ["현장번호", "고객명", "고객전화번호", "영업사원", "현장주소", "계약경로", "공사품목"] as const;
 
+/** 진행상태 검색 (목록의 진행/완료 표시와 같은 기준: 완료일이 있으면 완료) */
+const STATUS_OPTIONS = ["전체", "진행", "완료"] as const;
+
+/** 계약일 최신순, 계약일이 없는 현장은 맨 뒤 */
+function compareByContractDateDesc(a: Site, b: Site) {
+  if (a.계약일 === b.계약일) return b.id - a.id;
+  if (!a.계약일) return 1;
+  if (!b.계약일) return -1;
+  return a.계약일 < b.계약일 ? 1 : -1;
+}
+
 export function SitesManager({
   initialSites,
   fixedSalesName = null,
@@ -27,6 +38,7 @@ export function SitesManager({
   const [sites, setSites] = useState(initialSites);
   const [panel, setPanel] = useState<Panel>({ kind: "none" });
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]>("전체");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const dirtyRef = useRef(false);
@@ -60,9 +72,14 @@ export function SitesManager({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/-/g, "");
-    if (!q) return sites;
-    return sites.filter((s) => SEARCH_KEYS.some((k) => (s[k] ?? "").toLowerCase().replace(/-/g, "").includes(q)));
-  }, [sites, query]);
+    return sites
+      .filter(
+        (s) =>
+          (status === "전체" || (status === "완료") === !!s.완료일) &&
+          (!q || SEARCH_KEYS.some((k) => (s[k] ?? "").toLowerCase().replace(/-/g, "").includes(q))),
+      )
+      .sort(compareByContractDateDesc);
+  }, [sites, query, status]);
 
   const paging = usePagination(filtered);
   const listRef = useRef<HTMLDivElement>(null);
@@ -81,6 +98,23 @@ export function SitesManager({
           현장정보 <span className="ml-1 text-sm font-normal text-zinc-500">{sites.length}건</span>
         </h1>
         <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <label className="flex items-center gap-1.5 text-sm text-zinc-700">
+            진행상태
+            <select
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value as (typeof STATUS_OPTIONS)[number]);
+                paging.reset();
+              }}
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </label>
           <input
             type="search"
             value={query}

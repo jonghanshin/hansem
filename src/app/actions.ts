@@ -5,6 +5,7 @@ import { refresh } from "next/cache";
 
 import {
   approveRequest,
+  cancelPendingRequest,
   hasPendingRequestFor,
   deleteRejectedRequest,
   insertRequest,
@@ -23,6 +24,7 @@ import {
   normalizeSiteInput,
   type ActionResult,
   type ComputedSources,
+  formatMoney,
   type Site,
   type SiteFieldKey,
   type SiteInput,
@@ -42,7 +44,7 @@ import {
 } from "@/lib/deposits";
 import { plainCellValue } from "@/lib/excel-cells";
 import { fetchDeposits, fetchExistingSiteNumbers, fetchSites, siteNumberInScope } from "@/lib/sites-data";
-import { DEPOSITS_TABLE, getSupabaseAdmin, SITES_TABLE } from "@/lib/supabase-admin";
+import { DEPOSITS_TABLE, getSupabaseAdmin, PENDING_DEPOSITS_TABLE, SITES_TABLE } from "@/lib/supabase-admin";
 
 // Server Action은 POST로 직접 호출할 수 있으므로 화면과 별개로 각 액션 첫 줄에서 로그인 여부를 다시 확인한다.
 // 역할이 RD이면 scope에 따라 본인(영업사원 = 본인 이름) 데이터만 조회·수정하고, 저장하는 행의 영업사원은 본인 이름으로 고정한다.
@@ -310,6 +312,22 @@ export async function deleteRejectedRequestAction(requestId: number): Promise<Ac
   }
 }
 
+/** 요청자 본인: 아직 승인되지 않은 요청을 취소한다 (승인필요입금내역에서 삭제, 입금내역은 바뀌지 않음) */
+export async function cancelPendingRequestAction(requestId: number): Promise<ActionResult<null>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) return { ok: false, error: "잘못된 요청입니다" };
+  try {
+    if (!(await cancelPendingRequest(requestId, auth.uid))) {
+      return { ok: false, error: "취소할 수 있는 요청이 아닙니다 (이미 승인 또는 반려되었을 수 있습니다)" };
+    }
+    refresh(); // 승인 대기 건수·목록 갱신
+    return { ok: true, data: null };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /** 자동 계산 필드는 사용자 입력으로 저장하지 않는다 (서버가 계산해서 채움) */
 function writableFields(data: SiteInput): Partial<SiteInput> {
   return Object.fromEntries(Object.entries(data).filter(([k]) => !isComputedField(k))) as Partial<SiteInput>;
@@ -397,6 +415,42 @@ export async function createSiteAction(
   }
 }
 
+/**
+ * 현장정보에서 바뀐 값을 같은 현장번호의 입금내역·승인필요입금내역에 반영한다.
+ * 바뀐 항목만 고친다. 입금자는 예전 고객명과 같은 행만, 계약가는 값이 있는 행만 고친다.
+ */
+async function cascadeSiteChanges(before: Site, after: Site): Promise<void> {
+  const siteNumber = before.현장번호;
+  if (!siteNumber || !after.현장번호) return;
+  const sb = getSupabaseAdmin();
+  const check = (table: string, error: { message: string } | null) => {
+    if (error) throw new Error(`${table} 반영 실패: ${error.message}`);
+  };
+
+  const common: Partial<Pick<DepositRow, "현장번호" | "고객명" | "영업사원">> = {
+    ...(after.현장번호 !== before.현장번호 && { 현장번호: after.현장번호 }),
+    ...(after.고객명 !== before.고객명 && { 고객명: after.고객명 }),
+    ...(after.영업사원 !== before.영업사원 && { 영업사원: after.영업사원 }),
+  };
+
+  for (const table of [DEPOSITS_TABLE, PENDING_DEPOSITS_TABLE]) {
+    if (before.고객명 && after.고객명 !== before.고객명) {
+      const { error } = await sb.from(table).update({ 입금자: after.고객명 }).eq("현장번호", siteNumber).eq("입금자", before.고객명);
+      check(table, error);
+    }
+    if (after.계약가 !== before.계약가) {
+      const 계약가 = after.계약가 === null ? null : formatMoney(after.계약가);
+      const { error } = await sb.from(table).update({ 계약가 }).eq("현장번호", siteNumber).not("계약가", "is", null);
+      check(table, error);
+    }
+    // 현장번호도 함께 바뀔 수 있어 맨 마지막에 고친다
+    if (Object.keys(common).length > 0) {
+      const { error } = await sb.from(table).update(common).eq("현장번호", siteNumber);
+      check(table, error);
+    }
+  }
+}
+
 export async function updateSiteAction(
   id: number,
   raw: Partial<Record<SiteFieldKey, unknown>>,
@@ -410,6 +464,17 @@ export async function updateSiteAction(
   const sumError = contractSumError(data);
   if (sumError) return { ok: false, error: sumError };
   try {
+    const { data: previous, error: readError } = await applyScope(
+      getSupabaseAdmin().from(SITES_TABLE).select("*").eq("id", id),
+      scope,
+    ).maybeSingle();
+    if (readError) return { ok: false, error: `수정 실패: ${readError.message}` };
+    if (!previous) return { ok: false, error: "해당 현장정보를 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    const before = previous as Site;
+    // 다른 현장의 번호로 바꾸면 입금내역이 그 현장과 섞이므로 막는다
+    if (data.현장번호 && data.현장번호 !== before.현장번호 && (await fetchExistingSiteNumbers([data.현장번호])).size > 0) {
+      return { ok: false, error: `현장번호 ${data.현장번호}은(는) 이미 다른 현장에서 사용 중입니다` };
+    }
     const { data: row, error } = await applyScope(
       getSupabaseAdmin()
         .from(SITES_TABLE)
@@ -421,6 +486,12 @@ export async function updateSiteAction(
       .maybeSingle();
     if (error) return { ok: false, error: `수정 실패: ${error.message}` };
     if (!row) return { ok: false, error: "해당 현장정보를 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    try {
+      await cascadeSiteChanges(before, row as Site);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      return { ok: false, error: `현장정보는 저장했지만 입금내역 반영에 실패했습니다. 다시 저장해도 반영되지 않으니 관리자에게 알려주세요.\n${reason}` };
+    }
     // 현장번호가 바뀌었을 수 있으므로 다시 계산
     return { ok: true, data: await syncQuietly(row as Site) };
   } catch (e) {

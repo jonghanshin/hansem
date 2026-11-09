@@ -3,7 +3,7 @@ import { Suspense } from "react";
 
 import { fetchPendingRequests } from "@/lib/approvals";
 import { requireUser } from "@/lib/auth";
-import { canApprove } from "@/lib/data-scope";
+import { canApprove, scopeFor } from "@/lib/data-scope";
 
 import { ApprovalsTable } from "./approvals-table";
 
@@ -22,7 +22,7 @@ export default function ApprovalsPage() {
 async function ApprovalsLoader() {
   const session = await requireUser();
   if (!canApprove(session)) redirect("/"); // 승인 권한(CEO·관리자)이 있는 사용자만 볼 수 있다
-  const result = await fetchPendingRequests().then(
+  const result = await fetchPendingRequests(scopeFor(session)).then(
     (rows) => ({ ok: true as const, rows }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );

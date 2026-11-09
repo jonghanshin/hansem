@@ -2,14 +2,13 @@ import "server-only";
 
 // 정산: 미정산 현장 목록과, 선택한 현장의 현장별 계약금(현장정보)·총입금액·총출금액(입금내역) 계산
 
+import type { DataScope } from "@/lib/data-scope";
 import { depositCategoryOf, type Deposit } from "@/lib/deposits";
 import { MONEY_GROUPS } from "@/lib/site-money";
 import { fetchAllDeposits, fetchSites } from "@/lib/sites-data";
 import { fetchComputedSources } from "@/lib/site-totals";
 import { normalizeSettlement, toMoney, withVat, type HansemOrderLine, type Site } from "@/lib/sites";
 import { getSupabaseAdmin, HANSEM_EXTRA_COST_TABLE } from "@/lib/supabase-admin";
-
-const ALL = { salesName: null }; // 정산은 관리자 이상만 사용하므로 전체 데이터
 
 /** 한 번에 정산할 수 있는 현장 수 */
 export const MAX_SETTLEMENT_SITES = 200;
@@ -123,8 +122,8 @@ function isCandidate(site: Site): boolean {
 }
 
 /** 정산여부가 미정산인 현장 */
-export async function fetchSettlementCandidates(): Promise<SettlementCandidate[]> {
-  return (await fetchSites(ALL)).filter(isCandidate).map((s) => ({
+export async function fetchSettlementCandidates(scope: DataScope): Promise<SettlementCandidate[]> {
+  return (await fetchSites(scope)).filter(isCandidate).map((s) => ({
     id: s.id,
     현장번호: s.현장번호,
     고객명: s.고객명,
@@ -156,9 +155,9 @@ function toDetail(d: Deposit): SettlementDeposit {
 const sum = (rows: SettlementDeposit[]) => rows.reduce((acc, r) => acc + (r.금액 ?? 0), 0);
 
 /** 선택한 현장의 정산 내역 (미정산이 아닌 현장은 제외) */
-export async function computeSettlement(ids: number[]): Promise<SettlementResult> {
+export async function computeSettlement(ids: number[], scope: DataScope): Promise<SettlementResult> {
   const wanted = new Set(ids);
-  const [sites, deposits] = await Promise.all([fetchSites(ALL), fetchAllDeposits(ALL)]);
+  const [sites, deposits] = await Promise.all([fetchSites(scope), fetchAllDeposits(scope)]);
   const targets = sites.filter((s) => wanted.has(s.id) && isCandidate(s));
 
   const byNumber = new Map<string, Deposit[]>();

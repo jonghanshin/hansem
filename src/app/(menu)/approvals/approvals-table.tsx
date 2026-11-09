@@ -6,6 +6,7 @@ import { useEffect, useId, useState, useTransition } from "react";
 import { DepositFormDialog } from "@/app/(menu)/deposits/deposit-form-dialog";
 import {
   approveRequestAction,
+  cancelPendingRequestAction,
   deleteRejectedRequestAction,
   rejectRequestAction,
   resubmitRequestAction,
@@ -63,7 +64,6 @@ const FIELD_LABELS: Partial<Record<(typeof DEPOSIT_COLUMNS)[number], string>> = 
   업체계좌번호: "업체계좌 번호",
 };
 const fieldLabel = (f: (typeof DEPOSIT_COLUMNS)[number]) => FIELD_LABELS[f] ?? f;
-
 /**
  * 이 요청에서 보여줄 칸: 거래처 정보(업체·계좌)는 출금일 때만 (입금 등록 화면과 같은 기준, vendorInfoAllowed)
  */
@@ -87,7 +87,7 @@ function summary(d: DepositRow & { amount: number | null }) {
 /**
  * 승인 대기 요청 카드 목록.
  * mode="approve": CEO·관리자의 승인 화면 (승인/반려 버튼)
- * mode="mine": RD의 '내 요청' 화면 (승인 대기는 보기 전용, 반려 건은 관리자 의견을 보고 고쳐 다시 요청)
+ * mode="mine": RD의 '내 요청' 화면 (승인 대기는 취소 가능, 반려 건은 관리자 의견을 보고 고쳐 다시 요청)
  */
 export function ApprovalsTable({
   rows,
@@ -113,7 +113,7 @@ export function ApprovalsTable({
   const [resubmitting, setResubmitting] = useState<PendingRequest | null>(null);
   const [busy, setBusy] = useState<{
     id: number;
-    action: "approve" | "resubmit" | "delete";
+    action: "approve" | "resubmit" | "delete" | "cancel";
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -166,6 +166,28 @@ export function ApprovalsTable({
         return;
       }
       setToast(`[${r.요청구분}] ${label} 반려 건을 삭제했습니다`);
+    });
+  }
+
+  /** 아직 승인되지 않은 내 요청을 취소한다 (요청을 삭제) */
+  function cancelPending(r: PendingRequest) {
+    const label = summary(r);
+    if (
+      !window.confirm(
+        `[${r.요청구분}] ${label}\n\n이 승인 요청을 취소하고 삭제하시겠습니까? (되돌릴 수 없습니다)`,
+      )
+    )
+      return;
+    setBusy({ id: r.id, action: "cancel" });
+    setError(null);
+    startTransition(async () => {
+      const res = await cancelPendingRequestAction(r.id);
+      setBusy(null);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setToast(`[${r.요청구분}] ${label} 승인 요청을 취소했습니다`);
     });
   }
 
@@ -308,8 +330,16 @@ export function ApprovalsTable({
                   )}
                 </div>
               ) : mine ? (
-                <div className="border-t border-zinc-100 px-4 py-2.5 text-right text-xs font-semibold text-amber-700">
-                  승인 대기 중
+                <div className="flex items-center justify-end gap-3 border-t border-zinc-100 px-4 py-2.5">
+                  <span className="mr-auto text-xs font-semibold text-amber-700">승인 대기 중</span>
+                  <button
+                    type="button"
+                    onClick={() => cancelPending(r)}
+                    disabled={pending}
+                    className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-60"
+                  >
+                    {busy?.id === r.id && busy.action === "cancel" ? "취소 중…" : "승인취소요청"}
+                  </button>
                 </div>
               ) : (
                 <div className="flex justify-end gap-2 border-t border-zinc-100 px-4 py-2.5">

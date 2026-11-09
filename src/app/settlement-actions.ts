@@ -97,7 +97,7 @@ export async function computeSettlementAction(ids: number[]): Promise<ActionResu
     return { ok: false, error: `한 번에 ${MAX_SETTLEMENT_SITES}개 현장까지 정산할 수 있습니다` };
   }
   try {
-    return { ok: true, data: await computeSettlement(ids) };
+    return { ok: true, data: await computeSettlement(ids, auth.scope) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

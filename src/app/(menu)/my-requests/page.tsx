@@ -24,7 +24,7 @@ async function MyRequestsLoader() {
   const scope = scopeFor(session);
   // 로그인한 사람이 요청한 건만 (권한.id = 승인필요입금내역.요청자)
   const result = await Promise.all([
-    fetchPendingRequests(session.uid, [STATUS_PENDING, STATUS_REJECTED]),
+    fetchPendingRequests(scope, session.uid, [STATUS_PENDING, STATUS_REJECTED]),
     fetchSiteSummaries(scope),
   ]).then(
     ([rows, sites]) => ({ ok: true as const, rows, sites }),

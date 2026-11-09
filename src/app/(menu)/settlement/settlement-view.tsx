@@ -219,7 +219,7 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
   const [result, setResult] = useState<SettlementResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [detail, setDetail] = useState<{ line: SettlementLine; group: DetailGroup } | null>(null);
+  const [detail, setDetail] = useState<{ line: SettlementLine; group: DetailGroup; netOfVat: boolean } | null>(null);
   const [uploadTable, setUploadTable] = useState<UploadTable | null>(null);
 
   const salesOptions = useMemo(() => options(sites.map((s) => s.영업사원)).sort((a, b) => a.localeCompare(b, "ko")), [sites]);
@@ -267,7 +267,8 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
     });
   }
 
-  const openDetail = (line: SettlementLine, group: DetailGroup) => setDetail({ line, group });
+  const openDetail = (line: SettlementLine, group: DetailGroup) => setDetail({ line, group, netOfVat: false });
+  const openNetDetail = (line: SettlementLine, group: DetailGroup) => setDetail({ line, group, netOfVat: true });
 
   return (
     <div className="flex-1 space-y-4 overflow-auto p-4 sm:p-6 lg:min-h-0">
@@ -407,12 +408,12 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
           <h2 id="settlement-net" className="text-base font-semibold text-zinc-900">
             정산결과 <span className="ml-1 text-sm font-normal text-zinc-500">{result.lines.length}개 현장</span>
           </h2>
-          <SettlementTable lines={result.lines} netOfVat onDetail={openDetail} />
+          <SettlementTable lines={result.lines} netOfVat onDetail={openNetDetail} />
           <SettlementSummary lines={result.lines} />
         </section>
       )}
 
-      {detail && <DepositDetailDialog line={detail.line} group={detail.group} onClose={() => setDetail(null)} />}
+      {detail && <DepositDetailDialog line={detail.line} group={detail.group} netOfVat={detail.netOfVat} onClose={() => setDetail(null)} />}
     </div>
   );
 }
@@ -447,7 +448,18 @@ function hasOutflowDetail(line: SettlementLine, group: OutflowGroup) {
 }
 
 /** 현장 하나의 입금 내역(입금구분별) 또는 총출금액 한 묶음의 내역 */
-function DepositDetailDialog({ line, group, onClose }: { line: SettlementLine; group: DetailGroup; onClose: () => void }) {
+function DepositDetailDialog({
+  line,
+  group,
+  netOfVat,
+  onClose,
+}: {
+  line: SettlementLine;
+  group: DetailGroup;
+  /** 정산결과 표에서 연 경우: 한샘 상세를 부가세 제외 기준으로 보여준다 */
+  netOfVat: boolean;
+  onClose: () => void;
+}) {
   const rows = group === "입금" ? line.입금내역 : group === "한샘" ? [] : outflowRows(line, group);
   return (
     <div
@@ -464,7 +476,7 @@ function DepositDetailDialog({ line, group, onClose }: { line: SettlementLine; g
         <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-4">
           <div className="min-w-0">
             <h3 id="settlement-detail-title" className="text-base font-semibold text-zinc-900">
-              {GROUP_LABEL[group]} 내역
+              {group === "한샘" && netOfVat ? "한샘(부가세제외)" : GROUP_LABEL[group]} 내역
             </h3>
             <p className="mt-0.5 text-xs text-zinc-500 tabular-nums">
               {[line.고객명, line.현장번호].filter(Boolean).join(" · ")}
@@ -484,9 +496,9 @@ function DepositDetailDialog({ line, group, onClose }: { line: SettlementLine; g
             <>
               <p className="px-3 py-2 text-xs text-zinc-500 tabular-nums">
                 공급가(HS) {formatMoney(line.한샘["공급가(HS)"])} · 공급가(S1) {formatMoney(line.한샘["공급가(S1)"])} · 추가시공비{" "}
-                {formatMoney(line.한샘.추가시공비)}
+                {formatMoney(netOfVat ? withoutVat(line.한샘.추가시공비) : line.한샘.추가시공비)}
               </p>
-              <HansemOrders hansem={line.한샘} />
+              <HansemOrders hansem={line.한샘} netOfVat={netOfVat} />
             </>
           ) : rows.length > 0 ? (
             <CategoryTable rows={rows} total={rowsSum(rows)} />
@@ -502,9 +514,10 @@ function DepositDetailDialog({ line, group, onClose }: { line: SettlementLine; g
 const vatOf = (amount: number | null) => (amount === null ? null : withVat(amount));
 
 /** 한샘주문진도정보의 확정 주문별 공급가 */
-function HansemOrders({ hansem }: { hansem: SettlementLine["한샘"] }) {
+function HansemOrders({ hansem, netOfVat }: { hansem: SettlementLine["한샘"]; netOfVat: boolean }) {
   const [showExtra, setShowExtra] = useState(false);
   // 세로 합계가 표와 맞도록 주문별 부가세 포함 금액을 더한다
+  const grossTotal = hansem["공급가(부가세포함)"] + hansem.추가시공비;
   const vatTotal = (key: "공급가(HS)" | "공급가(S1)") => hansem.주문.reduce((acc, o) => acc + withVat(o[key] ?? 0), 0);
   return (
     <table className="min-w-full text-sm">
@@ -515,11 +528,11 @@ function HansemOrders({ hansem }: { hansem: SettlementLine["한샘"] }) {
           <th className={`${TH} text-left`}>공정</th>
           <th className={`${TH} text-left`}>품목명</th>
           <th className={`${TH} text-right`}>공급가</th>
-          <th className={`${TH} text-right`}>공급가(부가세포함)</th>
+          {!netOfVat && <th className={`${TH} text-right`}>공급가(부가세포함)</th>}
           <th className={`${TH} text-right`}>공급가(HS)</th>
-          <th className={`${TH} text-right`}>공급가(HS)(부가세포함)</th>
+          {!netOfVat && <th className={`${TH} text-right`}>공급가(HS)(부가세포함)</th>}
           <th className={`${TH} text-right`}>공급가(S1)</th>
-          <th className={`${TH} text-right`}>공급가(S1)(부가세포함)</th>
+          {!netOfVat && <th className={`${TH} text-right`}>공급가(S1)(부가세포함)</th>}
         </tr>
       </thead>
       <tbody>
@@ -530,11 +543,11 @@ function HansemOrders({ hansem }: { hansem: SettlementLine["한샘"] }) {
             <td className={TD}>{o.공정}</td>
             <td className={TD}>{o.품목명}</td>
             <td className={`${TD} ${NUM}`}><Money value={o.공급가} /></td>
-            <td className={`${TD} ${NUM}`}><Money value={vatOf(o.공급가)} /></td>
+            {!netOfVat && <td className={`${TD} ${NUM}`}><Money value={vatOf(o.공급가)} /></td>}
             <td className={`${TD} ${NUM}`}><Money value={o["공급가(HS)"]} /></td>
-            <td className={`${TD} ${NUM}`}><Money value={vatOf(o["공급가(HS)"])} /></td>
+            {!netOfVat && <td className={`${TD} ${NUM}`}><Money value={vatOf(o["공급가(HS)"])} /></td>}
             <td className={`${TD} ${NUM}`}><Money value={o["공급가(S1)"]} /></td>
-            <td className={`${TD} ${NUM}`}><Money value={vatOf(o["공급가(S1)"])} /></td>
+            {!netOfVat && <td className={`${TD} ${NUM}`}><Money value={vatOf(o["공급가(S1)"])} /></td>}
           </tr>
         ))}
       </tbody>
@@ -542,24 +555,24 @@ function HansemOrders({ hansem }: { hansem: SettlementLine["한샘"] }) {
         <tr className="font-medium">
           <td colSpan={4} className="px-3 py-2">공급가 소계</td>
           <td className={`px-3 py-2 ${NUM}`}>{formatMoney(hansem.공급가)}</td>
-          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(hansem["공급가(부가세포함)"])}</td>
+          {!netOfVat && <td className={`px-3 py-2 ${NUM}`}>{formatMoney(hansem["공급가(부가세포함)"])}</td>}
           <td className={`px-3 py-2 ${NUM}`}>{formatMoney(hansem["공급가(HS)"])}</td>
-          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(vatTotal("공급가(HS)"))}</td>
+          {!netOfVat && <td className={`px-3 py-2 ${NUM}`}>{formatMoney(vatTotal("공급가(HS)"))}</td>}
           <td className={`px-3 py-2 ${NUM}`}>{formatMoney(hansem["공급가(S1)"])}</td>
-          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(vatTotal("공급가(S1)"))}</td>
+          {!netOfVat && <td className={`px-3 py-2 ${NUM}`}>{formatMoney(vatTotal("공급가(S1)"))}</td>}
         </tr>
         <tr className="font-medium">
-          <td colSpan={5} className="px-3 py-2">
-            추가시공비 <span className="ml-1 text-xs font-normal text-zinc-500">{hansem.추가시공비내역.length}건</span>
+          <td colSpan={netOfVat ? 4 : 5} className="px-3 py-2">
+            {netOfVat ? "추가시공비(부가세제외)" : "추가시공비"} <span className="ml-1 text-xs font-normal text-zinc-500">{hansem.추가시공비내역.length}건</span>
           </td>
-          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(hansem.추가시공비)}</td>
-          <td colSpan={4} className="px-3 py-2">
+          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(netOfVat ? withoutVat(hansem.추가시공비) : hansem.추가시공비)}</td>
+          <td colSpan={netOfVat ? 2 : 4} className="px-3 py-2">
             {hansem.추가시공비내역.length > 0 && <ToggleButton open={showExtra} onClick={() => setShowExtra((v) => !v)} />}
           </td>
         </tr>
         {showExtra && (
           <tr>
-            <td colSpan={10} className="bg-zinc-50 p-3 font-normal">
+            <td colSpan={netOfVat ? 7 : 10} className="bg-zinc-50 p-3 font-normal">
               <div className="overflow-x-auto rounded-md border border-zinc-200 bg-white">
                 <ExtraCostTable rows={hansem.추가시공비내역} />
               </div>
@@ -567,9 +580,9 @@ function HansemOrders({ hansem }: { hansem: SettlementLine["한샘"] }) {
           </tr>
         )}
         <tr>
-          <td colSpan={5} className="px-3 py-2">한샘(부가세포함) 합계</td>
-          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(hansem["공급가(부가세포함)"] + hansem.추가시공비)}</td>
-          <td colSpan={4} />
+          <td colSpan={netOfVat ? 4 : 5} className="px-3 py-2">{netOfVat ? "한샘(부가세제외) 합계" : "한샘(부가세포함) 합계"}</td>
+          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(netOfVat ? withoutVat(grossTotal) : grossTotal)}</td>
+          <td colSpan={netOfVat ? 2 : 4} />
         </tr>
       </tfoot>
     </table>

@@ -89,6 +89,19 @@ export type Parsed<R extends DepositRow> = R & {
 
 export type Deposit = Parsed<DepositRecord>;
 
+/** 날짜 값에서 시간을 "HH:mm"으로 읽는다 ("2026년 11월 09일 14:30", "2026-11-09T14:30"). 시간이 없으면 null */
+export function depositTimeOf(value: unknown): string | null {
+  const m = String(value ?? "").match(/[T\s](\d{1,2}):(\d{2})/);
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return `${m[1].padStart(2, "0")}:${m[2]}`;
+}
+
+/** 목록에 보여줄 입금 일시. 시간이 없는 예전 행은 날짜만 */
+export function depositDateText(row: Parsed<DepositRow>): string | null {
+  const time = depositTimeOf(row.날짜);
+  return row.dateIso ? [row.dateIso, time].filter(Boolean).join(" ") : row.날짜;
+}
+
 /** 행에서 내용 컬럼만 뽑는다 */
 export function pickDepositRow(row: DepositRow): DepositRow {
   return Object.fromEntries(DEPOSIT_COLUMNS.map((c) => [c, row[c] ?? null])) as DepositRow;
@@ -113,7 +126,7 @@ export function depositToInput(d: Deposit): DepositInput {
     구분: depositCategoryOf(d) ?? "",
     입금액: d.amount !== null ? formatMoney(d.amount) : (d.입금액 ?? ""),
     입출금: categoryRule(depositCategoryOf(d))?.입출금 === null ? (d.입출금 ?? "") : "",
-    날짜: d.dateIso ?? "",
+    날짜: d.dateIso ? `${d.dateIso}T${depositTimeOf(d.날짜) ?? "00:00"}` : "",
     입금내용: categoryRule(depositCategoryOf(d))?.입금내용 === null ? (d.입금내용 ?? "") : "",
     거래처: categoryRule(depositCategoryOf(d))?.입금자 === "vendor" ? (d.입금자 ?? "") : "",
     현금영수증,
@@ -219,6 +232,11 @@ export function vendorInfoAllowed(kind: string | null | undefined): boolean {
   return (kind ?? "").trim() === "출금";
 }
 
+/** 화면의 비고(A/S 컬럼)에 '수정필요'라고 적힌 줄이 있는지 (발급불필요 사유가 뒤에 붙어 있어도 인식) */
+export function needsCorrection(row: Pick<DepositRow, "A/S">): boolean {
+  return (row["A/S"] ?? "").split("\n").some((line) => line.trim() === "수정필요");
+}
+
 /** 영수증(현금영수증 컬럼)은 입금일 때만 받는다. 출금이거나 아직 정해지지 않았으면 입금 화면에서 숨긴다 */
 export function receiptAllowed(kind: string | null | undefined): boolean {
   return (kind ?? "").trim() === "입금";
@@ -287,7 +305,7 @@ export type DepositInput = {
   /** 입금 / 출금. 입금구분 규칙에 입출금이 정해져 있지 않을 때(홈씨씨창호)만 사용 (필수) */
   입출금: string;
   입금액: string;
-  날짜: string; // YYYY-MM-DD
+  날짜: string; // YYYY-MM-DDTHH:mm
   /** 구분이 '한샘 외 시공비'·'거래처환불'일 때만 사용 */
   입금내용: string;
   /** 구분이 '거래처환불'일 때 입금자로 저장 */
@@ -393,6 +411,9 @@ export function normalizeDepositInput(
   const dateIso = toIsoDate(raw.날짜);
   if (dateIso === null) errors.push("날짜를 입력하세요");
   else if (dateIso === undefined) errors.push("날짜 형식이 올바르지 않습니다");
+  // 00:00은 시간이 없는 예전 행의 입력 칸 기본값이므로 저장하지 않는다
+  const time = depositTimeOf(raw.날짜);
+  const timeSuffix = time && time !== "00:00" ? ` ${time}` : "";
 
   return {
     errors,
@@ -407,7 +428,7 @@ export function normalizeDepositInput(
       입금내용,
       입금처: null,
       입금구분: rule?.입금구분 ?? null,
-      날짜: dateIso ? toKoreanDate(dateIso) : null,
+      날짜: dateIso ? `${toKoreanDate(dateIso)}${timeSuffix}` : null,
       현금영수증, // 비어 있으면 수정 시 서버에서 기존 값 유지
       부가세포함,
       비고: null,
@@ -417,9 +438,12 @@ export function normalizeDepositInput(
   };
 }
 
-/** 날짜 오름차순, 날짜를 모르는 행은 맨 뒤 */
+/** 날짜·시간 오름차순, 날짜를 모르는 행은 맨 뒤 */
 export function compareDeposits(a: Parsed<DepositRow>, b: Parsed<DepositRow>) {
-  if (a.dateIso === b.dateIso) return 0;
+  if (a.dateIso === b.dateIso) {
+    const [timeA, timeB] = [depositTimeOf(a.날짜) ?? "", depositTimeOf(b.날짜) ?? ""];
+    return timeA === timeB ? 0 : timeA < timeB ? -1 : 1;
+  }
   if (a.dateIso === null) return 1;
   if (b.dateIso === null) return -1;
   return a.dateIso < b.dateIso ? -1 : 1;
