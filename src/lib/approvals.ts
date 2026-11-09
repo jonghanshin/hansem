@@ -232,8 +232,8 @@ export async function approveRequest(id: number): Promise<ApproveResult | null> 
 }
 
 /** 반려: 요청을 '반려'로 바꾸고 관리자의견(반려 사유)을 저장한다 (입금내역은 그대로) */
-export async function rejectRequest(id: number, comment: string): Promise<boolean> {
-  return (await claimRequest(id, STATUS_REJECTED, { 관리자의견: comment })) !== null;
+export async function rejectRequest(id: number, comment: string): Promise<RequestRecord | null> {
+  return claimRequest(id, STATUS_REJECTED, { 관리자의견: comment });
 }
 
 /** 요청자 본인의 반려된 요청 (재요청 대상). 없으면 null */

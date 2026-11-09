@@ -65,7 +65,7 @@ export function ExcelUploadDialog({
   const rows = preview?.rows ?? [];
   const errorCount = rows.filter((r) => r.errors.length > 0).length;
   const dupCount = rows.filter((r) => r.duplicate).length;
-  const selectable = rows.filter((r) => r.errors.length === 0);
+  const selectable = rows.filter((r) => r.errors.length === 0 && !r.duplicate);
   const allChecked = selectable.length > 0 && selectable.every((r) => checked.has(r.rowNumber));
 
   return (
@@ -131,7 +131,7 @@ export function ExcelUploadDialog({
                   총 <b>{rows.length}</b>행
                 </span>
                 {errorCount > 0 && <span className="text-red-600">오류 {errorCount}행 (등록 불가)</span>}
-                {dupCount > 0 && <span className="text-amber-700">현장번호 중복 {dupCount}행 (기본 제외)</span>}
+                {dupCount > 0 && <span className="text-amber-700">현장번호 중복 {dupCount}행 (등록 불가)</span>}
                 {preview.ignoredColumns.length > 0 && (
                   <span className="text-zinc-500">무시된 컬럼: {preview.ignoredColumns.join(", ")}</span>
                 )}
@@ -170,7 +170,7 @@ export function ExcelUploadDialog({
                             <input
                               type="checkbox"
                               aria-label={`${r.rowNumber}행 선택`}
-                              disabled={invalid}
+                              disabled={invalid || !!r.duplicate}
                               checked={checked.has(r.rowNumber)}
                               onChange={() => toggle(r.rowNumber)}
                             />

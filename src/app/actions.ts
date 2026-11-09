@@ -16,6 +16,7 @@ import {
 } from "@/lib/approvals";
 import { authorizeAction, lookupSalesperson } from "@/lib/auth";
 import { applyScope, withScopedSalesName, type DataScope } from "@/lib/data-scope";
+import { notifyDepositDecision, notifyDepositRequested } from "@/lib/deposit-notify";
 import { fetchComputedSources, syncSiteTotals } from "@/lib/site-totals";
 import {
   contractSumError,
@@ -146,6 +147,7 @@ export async function createDepositAction(raw: Partial<Record<keyof DepositInput
   try {
     const data = withScopedSalesName(normalized.data, auth.scope);
     await insertRequest("등록", { ...data, 입금자: await resolvePayer(data) }, null, auth.uid);
+    await notifyDepositRequested(data, auth.uid);
     refresh(); // CEO 화면의 승인 대기 건수 갱신
     return { ok: true, data: null };
   } catch (e) {
@@ -176,6 +178,7 @@ export async function updateDepositAction(
     };
     if (sameDepositRow(target, data)) return { ok: false, error: "변경된 내용이 없습니다" };
     await insertRequest("수정", data, id, auth.uid);
+    await notifyDepositRequested(data, auth.uid);
     refresh();
     return { ok: true, data: null };
   } catch (e) {
@@ -213,6 +216,7 @@ export async function approveRequestAction(requestId: number): Promise<ActionRes
     const result = await approveRequest(requestId);
     if (!result) return { ok: false, error: "이미 처리되었거나 찾을 수 없는 요청입니다" };
     await resyncSitesFor([pickDepositRow(result.request), result.before]);
+    await notifyDepositDecision(pickDepositRow(result.request), "승인");
     refresh(); // 승인 대기 건수·목록 갱신
     return { ok: true, data: { kind: result.request.요청구분 } };
   } catch (e) {
@@ -233,7 +237,9 @@ export async function rejectRequestAction(requestId: number, comment: unknown): 
   if (!text) return { ok: false, error: "반려 의견을 입력해 주세요" };
   if (text.length > MAX_COMMENT_LENGTH) return { ok: false, error: `반려 의견은 ${MAX_COMMENT_LENGTH}자 이내로 입력해 주세요` };
   try {
-    if (!(await rejectRequest(requestId, text))) return { ok: false, error: "이미 처리되었거나 찾을 수 없는 요청입니다" };
+    const rejected = await rejectRequest(requestId, text);
+    if (!rejected) return { ok: false, error: "이미 처리되었거나 찾을 수 없는 요청입니다" };
+    await notifyDepositDecision(pickDepositRow(rejected), "반려");
     refresh();
     return { ok: true, data: null };
   } catch (e) {
@@ -289,6 +295,7 @@ export async function resubmitRequestAction(
     if (!(await resubmitRequest(requestId, auth.uid, row))) {
       return { ok: false, error: "다시 요청할 수 있는 반려 건이 아닙니다 (이미 처리되었을 수 있습니다)" };
     }
+    await notifyDepositRequested(row, auth.uid);
     refresh();
     return { ok: true, data: null };
   } catch (e) {
@@ -326,6 +333,11 @@ export async function cancelPendingRequestAction(requestId: number): Promise<Act
   } catch (e) {
     return fail(e);
   }
+}
+
+/** 저장 오류 문구. DB의 UNIQUE 제약(23505)에 걸리면 현장번호 중복으로 안내한다 */
+function siteSaveError(prefix: string, error: { code?: string; message: string }): string {
+  return error.code === "23505" ? "이미 사용 중인 현장번호입니다" : `${prefix}: ${error.message}`;
 }
 
 /** 자동 계산 필드는 사용자 입력으로 저장하지 않는다 (서버가 계산해서 채움) */
@@ -403,12 +415,15 @@ export async function createSiteAction(
     data.영업사원ID = sales.영업사원ID;
     const missing = (["현장번호", "고객명", "영업사원"] as const).filter((k) => !data[k]);
     if (missing.length) return { ok: false, error: `${missing.join(", ")}을(를) 입력하세요` };
+    if ((await fetchExistingSiteNumbers([data.현장번호!])).size > 0) {
+      return { ok: false, error: `현장번호 ${data.현장번호}은(는) 이미 등록되어 있습니다` };
+    }
     const { data: row, error } = await getSupabaseAdmin()
       .from(SITES_TABLE)
       .insert(withScopedSalesName(writableFields(data), scope))
       .select()
       .single();
-    if (error) return { ok: false, error: `저장 실패: ${error.message}` };
+    if (error) return { ok: false, error: siteSaveError("저장 실패", error) };
     return { ok: true, data: await syncQuietly(row as Site) };
   } catch (e) {
     return fail(e);
@@ -484,7 +499,7 @@ export async function updateSiteAction(
     )
       .select()
       .maybeSingle();
-    if (error) return { ok: false, error: `수정 실패: ${error.message}` };
+    if (error) return { ok: false, error: siteSaveError("수정 실패", error) };
     if (!row) return { ok: false, error: "해당 현장정보를 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
     try {
       await cascadeSiteChanges(before, row as Site);
@@ -615,9 +630,14 @@ export async function insertSitesAction(
     rows.push(withScopedSalesName(writableFields(data), scope)); // 엑셀의 자동 계산 컬럼 값은 무시하고 아래에서 계산
   }
   try {
+    const numbers = rows.map((r) => r.현장번호).filter((n): n is string => !!n);
+    const repeated = [...new Set(numbers.filter((n, i) => numbers.indexOf(n) !== i))];
+    if (repeated.length > 0) return { ok: false, error: `파일 안에서 현장번호가 중복됩니다: ${repeated.join(", ")}` };
+    const existing = await fetchExistingSiteNumbers(numbers);
+    if (existing.size > 0) return { ok: false, error: `이미 등록된 현장번호입니다: ${[...existing].join(", ")}` };
     // 한 번의 insert라 일부만 들어가는 일 없이 전부 성공하거나 전부 실패한다.
     const { data, error } = await getSupabaseAdmin().from(SITES_TABLE).insert(rows).select();
-    if (error) return { ok: false, error: `등록 실패: ${error.message}` };
+    if (error) return { ok: false, error: siteSaveError("등록 실패", error) };
     const synced: Site[] = [];
     for (const site of data as Site[]) synced.push(await syncQuietly(site));
     return { ok: true, data: synced };
