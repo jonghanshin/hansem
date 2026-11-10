@@ -5,14 +5,15 @@ import { useEffect, useId, useState, useTransition } from "react";
 
 import { DepositFormDialog } from "@/app/(menu)/deposits/deposit-form-dialog";
 import {
+  addRequestCommentAction,
   approveRequestAction,
   cancelPendingRequestAction,
   deleteRejectedRequestAction,
   rejectRequestAction,
   resubmitRequestAction,
 } from "@/app/actions";
-import type { PendingRequest, RequestKind } from "@/lib/approvals";
-import { DEPOSIT_COLUMNS, vendorInfoAllowed, type DepositRow } from "@/lib/deposits";
+import type { PendingRequest, RequestComment, RequestKind } from "@/lib/approvals";
+import { DEPOSIT_COLUMNS, REQUEST_COMMENT_MAX_LENGTH, vendorInfoAllowed, type DepositRow } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
 const REJECTED = "반려";
@@ -110,6 +111,8 @@ export function ApprovalsTable({
   const pendingRows = rows.filter((r) => r.승인여부 !== REJECTED);
   const rejectedRows = rows.filter((r) => r.승인여부 === REJECTED);
   const [rejecting, setRejecting] = useState<PendingRequest | null>(null);
+  /** 확인사항 요청(관리자) 또는 답변(요청자)을 입력할 요청 */
+  const [commenting, setCommenting] = useState<PendingRequest | null>(null);
   const [resubmitting, setResubmitting] = useState<PendingRequest | null>(null);
   const [busy, setBusy] = useState<{
     id: number;
@@ -257,6 +260,7 @@ export function ApprovalsTable({
                 <span className="min-w-0 truncate text-sm font-semibold text-zinc-900">
                   {summary(r)}
                 </span>
+                {r.승인여부 !== REJECTED && r.의견.length > 0 && <CommentBadge last={r.의견[r.의견.length - 1]} />}
                 <span className="ml-auto text-xs text-zinc-500">
                   {r.요청자이름 ?? "알 수 없음"} · {r.요청일시표시}
                 </span>
@@ -284,6 +288,7 @@ export function ApprovalsTable({
                     <p className="mt-0.5 whitespace-pre-line">{r.관리자의견}</p>
                   </div>
                 )}
+                {r.의견.length > 0 && <CommentThread comments={r.의견} />}
                 {r.요청구분 !== "등록" && !r.original && (
                   <p className="mt-2 rounded-md bg-zinc-100 px-3 py-2 text-xs text-zinc-600">
                     {mine
@@ -332,6 +337,16 @@ export function ApprovalsTable({
               ) : mine ? (
                 <div className="flex items-center justify-end gap-3 border-t border-zinc-100 px-4 py-2.5">
                   <span className="mr-auto text-xs font-semibold text-amber-700">승인 대기 중</span>
+                  {r.의견.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setCommenting(r)}
+                      disabled={pending}
+                      className="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+                    >
+                      의견 등록
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => cancelPending(r)}
@@ -343,6 +358,14 @@ export function ApprovalsTable({
                 </div>
               ) : (
                 <div className="flex justify-end gap-2 border-t border-zinc-100 px-4 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setCommenting(r)}
+                    disabled={pending}
+                    className="mr-auto rounded-md border border-violet-300 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                  >
+                    확인사항요청
+                  </button>
                   <button
                     type="button"
                     onClick={() => setRejecting(r)}
@@ -393,6 +416,18 @@ export function ApprovalsTable({
               `[${rejecting.요청구분}] ${summary(rejecting)} 반려했습니다`,
             );
             setRejecting(null);
+          }}
+        />
+      )}
+
+      {commenting && (
+        <CommentDialog
+          request={commenting}
+          side={mine ? "요청자" : "관리자"}
+          onClose={() => setCommenting(null)}
+          onDone={() => {
+            setToast(mine ? "의견을 등록했습니다" : "확인사항을 요청했습니다");
+            setCommenting(null);
           }}
         />
       )}
@@ -528,6 +563,150 @@ function RejectDialog({
             className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
           >
             {pending ? "반려 중…" : "반려"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/** 마지막 의견이 누구 것인지: 관리자면 요청자가 답할 차례, 요청자면 관리자가 볼 차례 */
+function CommentBadge({ last }: { last: RequestComment }) {
+  const fromAdmin = last.구분 === "관리자";
+  return (
+    <span
+      className={`rounded px-2 py-0.5 text-xs font-bold ${
+        fromAdmin ? "bg-violet-100 text-violet-800" : "bg-emerald-100 text-emerald-800"
+      }`}
+    >
+      {fromAdmin ? "확인사항 요청" : "요청자 답변"}
+    </span>
+  );
+}
+
+/** 관리자의 확인사항 요청과 요청자의 답변 (오래된 순) */
+function CommentThread({ comments }: { comments: RequestComment[] }) {
+  return (
+    <ol className="mt-3 space-y-2">
+      {comments.map((c) => (
+        <li
+          key={c.id}
+          className={`rounded-md border px-3 py-2 text-sm ${
+            c.구분 === "관리자"
+              ? "border-violet-200 bg-violet-50 text-violet-900"
+              : "ml-6 border-emerald-200 bg-emerald-50 text-emerald-900"
+          }`}
+        >
+          <p className="text-xs font-semibold">
+            {c.구분 === "관리자" ? "관리자 확인사항" : "요청자 답변"} · {c.작성자이름 ?? "알 수 없음"}
+            <span className="ml-1 font-normal opacity-70">{c.작성일시표시}</span>
+          </p>
+          <p className="mt-0.5 whitespace-pre-line">{c.내용}</p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** 확인사항 요청(관리자) 또는 의견 등록(요청자) */
+function CommentDialog({
+  request,
+  side,
+  onClose,
+  onDone,
+}: {
+  request: PendingRequest;
+  side: "관리자" | "요청자";
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const idp = useId();
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const title = side === "관리자" ? "확인사항요청" : "의견 등록";
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!text.trim()) {
+      setError("의견을 입력해 주세요");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const res = await addRequestCommentAction(request.id, text);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onDone();
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
+      onKeyDown={(e) => e.key === "Escape" && !pending && onClose()}
+    >
+      <form
+        onSubmit={submit}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${idp}-title`}
+        className="flex max-h-[90dvh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl"
+      >
+        <div className="border-b border-zinc-200 px-5 py-4">
+          <h2 id={`${idp}-title`} className="text-lg font-semibold text-zinc-900">
+            {title}
+          </h2>
+          <p className="mt-0.5 text-sm text-zinc-600">
+            [{request.요청구분}] {summary(request)}
+            <span className="block text-xs text-zinc-500">
+              {side === "관리자"
+                ? `요청자 ${request.요청자이름 ?? "알 수 없음"}에게 확인할 내용을 남깁니다. 요청은 승인 대기 상태로 남습니다.`
+                : "관리자에게 답변을 남깁니다."}
+            </span>
+          </p>
+        </div>
+        <div className="space-y-3 overflow-y-auto px-5 py-4">
+          {request.의견.length > 0 && <CommentThread comments={request.의견} />}
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-zinc-700">
+              {side === "관리자" ? "확인사항" : "의견"}
+              <span className="ml-0.5 text-red-600">*</span>
+            </span>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={4}
+              maxLength={REQUEST_COMMENT_MAX_LENGTH}
+              required
+              autoFocus
+              placeholder={side === "관리자" ? "요청자에게 확인할 내용을 적어 주세요" : "관리자 확인사항에 대한 답변을 적어 주세요"}
+              className="w-full rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            />
+          </label>
+          {error && (
+            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            className="rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+          >
+            취소
+          </button>
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-md bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          >
+            {pending ? "등록 중…" : "등록"}
           </button>
         </div>
       </form>

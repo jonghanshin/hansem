@@ -6,6 +6,9 @@ import { refresh } from "next/cache";
 import {
   approveRequest,
   cancelPendingRequest,
+  insertRequestComment,
+  loadRequestForComment,
+  STATUS_PENDING,
   hasPendingRequestFor,
   deleteRejectedRequest,
   insertRequest,
@@ -15,8 +18,13 @@ import {
   type RequestKind,
 } from "@/lib/approvals";
 import { authorizeAction, lookupSalesperson } from "@/lib/auth";
-import { applyScope, withScopedSalesName, type DataScope } from "@/lib/data-scope";
-import { notifyDepositDecision, notifyDepositRequested } from "@/lib/deposit-notify";
+import { applyScope, PRIVATE_SITE_NUMBERS, withScopedSalesName, type DataScope } from "@/lib/data-scope";
+import {
+  notifyCommentToApprovers,
+  notifyCommentToRequester,
+  notifyDepositDecision,
+  notifyDepositRequested,
+} from "@/lib/deposit-notify";
 import { fetchComputedSources, syncSiteTotals } from "@/lib/site-totals";
 import {
   contractSumError,
@@ -37,6 +45,7 @@ import {
   REFUND_TYPE,
   normalizeDepositInput,
   pickDepositRow,
+  REQUEST_COMMENT_MAX_LENGTH,
   sameDepositRow,
   type Deposit,
   type DepositInput,
@@ -313,6 +322,43 @@ export async function deleteRejectedRequestAction(requestId: number): Promise<Ac
       return { ok: false, error: "삭제할 수 있는 반려 건이 아닙니다 (이미 처리되었을 수 있습니다)" };
     }
     refresh(); // 반려 건수·목록 갱신
+    return { ok: true, data: null };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * 승인 대기 요청에 의견을 단다.
+ * 요청자 본인이면 '요청자' 의견(답변), 승인 권한자면 '관리자' 의견(확인사항 요청)으로 저장한다.
+ */
+export async function addRequestCommentAction(requestId: number, text: string): Promise<ActionResult<null>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) return { ok: false, error: "잘못된 요청입니다" };
+  const content = typeof text === "string" ? text.trim() : "";
+  if (!content) return { ok: false, error: "의견을 입력해 주세요" };
+  if (content.length > REQUEST_COMMENT_MAX_LENGTH) {
+    return { ok: false, error: `의견은 ${REQUEST_COMMENT_MAX_LENGTH}자 이내로 입력해 주세요` };
+  }
+  try {
+    const request = await loadRequestForComment(requestId);
+    if (!request) return { ok: false, error: "요청을 찾을 수 없습니다 (취소되었을 수 있습니다)" };
+    if (request.승인여부 !== STATUS_PENDING) return { ok: false, error: "이미 승인 또는 반려된 요청입니다" };
+    let side: "관리자" | "요청자";
+    if (request.요청자 === auth.uid) side = "요청자";
+    else if (auth.canApprove) {
+      // 비공개 현장의 요청은 볼 수 있는 사람만 의견을 달 수 있다
+      if (auth.scope.hidePrivateSites && PRIVATE_SITE_NUMBERS.includes(request.현장번호 ?? "")) {
+        return { ok: false, error: "요청을 찾을 수 없습니다" };
+      }
+      side = "관리자";
+    } else return { ok: false, error: "본인이 요청한 건에만 의견을 남길 수 있습니다" };
+    await insertRequestComment(requestId, side, { id: auth.uid, name: auth.name }, content);
+    // 관리자가 확인사항을 남기면 요청자에게, 요청자가 답하면 승인 권한자에게 알림톡
+    if (side === "관리자") await notifyCommentToRequester(pickDepositRow(request), request.요청자);
+    else await notifyCommentToApprovers(pickDepositRow(request), auth.uid);
+    refresh(); // 승인 화면·내 요청 화면 갱신
     return { ok: true, data: null };
   } catch (e) {
     return fail(e);

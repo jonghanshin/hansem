@@ -118,7 +118,7 @@ function SettlementSummary({ lines, ids, carryIn }: { lines: SettlementLine[]; i
             <p>
               전달 누적이월금{" "}
               {carryIn.리셋
-                ? "0원 (정산시작월 기준 3개월째라 리셋)"
+                ? "0원"
                 : carryIn.이전정산월
                   ? `${formatMoney(carryIn.금액)}원 (${carryIn.이전정산월} 정산정보)`
                   : "0원 (전달 정산정보 없음)"}
@@ -151,7 +151,6 @@ function SettlementSummary({ lines, ids, carryIn }: { lines: SettlementLine[]; i
         <p>이익금액 = 계약금(부가세제외) - 총출금액 합계</p>
         <p>정산대상금액 = 이익금액 합계 - 공제금({formatMoney(DEDUCTION)}원) - 전달 누적이월금</p>
         <p>정산대상금액이 -이면 그 금액만큼 이월금액(= 이번 달 누적이월금), +이면 아래 공식으로 계산한 정산금액(근로자 몫)을 표시하고 누적이월금은 0이 됩니다.</p>
-        <p>정산시작월부터 3개월째 되는 달(예: 1월 시작 → 4월, 7월, 10월)에는 전달 누적이월금을 0으로 리셋합니다.</p>
         <p className="mt-1 font-semibold text-zinc-700">정산대상금액 기준 정산 공식</p>
         <ol className="mt-0.5 list-decimal pl-4">
           <li>월 이익 500만원 이하 구간: 사업주 70% : 근로자 30%</li>

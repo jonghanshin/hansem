@@ -116,17 +116,25 @@ function monthNumber(value: string | null | undefined): number | null {
 /**
  * 권한.정산시작월 기준으로 3개월째 되는 달(시작월 포함 3개월 간격)인지.
  * 예: 시작월 1월 → 1월, 4월, 7월, 10월. 이 달에는 이전 누적이월금을 이어받지 않는다.
+ * 권한.초기화여부가 Y인 사용자만 리셋한다 (그 외는 계속 누적).
  */
 async function isCarryOverResetMonth(영업사원ID: string | null, 영업사원: string, 정산월: string): Promise<boolean> {
   const month = monthNumber(정산월);
   if (month === null) return false;
-  const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("영업사원ID, 이름, 역할, 정산시작월");
+  const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("영업사원ID, 이름, 역할, 정산시작월, 초기화여부");
   if (error) throw new Error(`권한 조회 실패: ${error.message}`);
-  const accounts = data as unknown as { 영업사원ID: string | null; 이름: string | null; 역할: string | null; 정산시작월: string | null }[];
+  const accounts = data as unknown as {
+    영업사원ID: string | null;
+    이름: string | null;
+    역할: string | null;
+    정산시작월: string | null;
+    초기화여부: string | null;
+  }[];
   const account =
     (영업사원ID && accounts.find((a) => a.영업사원ID?.trim() === 영업사원ID)) ||
     accounts.find((a) => a.이름?.trim() === 영업사원 && a.역할?.trim() === RESTRICTED_ROLE);
-  const start = monthNumber(account?.정산시작월);
+  if (account?.초기화여부?.trim().toUpperCase() !== "Y") return false;
+  const start = monthNumber(account.정산시작월);
   return start !== null && (((month - start) % 3) + 3) % 3 === 0;
 }
 

@@ -322,6 +322,9 @@ export type DepositInput = {
 
 export const AS_MAX_LENGTH = 500;
 
+/** 승인 요청 확인사항·답변 한 건 최대 글자 수 */
+export const REQUEST_COMMENT_MAX_LENGTH = 500;
+
 /** "2026-10-29" → "2026년 10월 29일" (기존 데이터와 같은 형식으로 저장) */
 function toKoreanDate(iso: string) {
   const [y, m, d] = iso.split("-");

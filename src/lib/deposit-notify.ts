@@ -1,6 +1,6 @@
 import "server-only";
 
-// 입금 승인 요청·승인 완료를 카카오 알림톡으로 알린다.
+// 입금 승인 요청·승인 완료·확인사항 요청과 답변을 카카오 알림톡으로 알린다.
 // 알림은 부가 기능이므로 실패해도 입금 처리에 영향을 주지 않는다 (오류는 서버 로그에만 남긴다).
 
 import { APPROVER_ROLES, PRIVATE_SITE_NUMBERS, RESTRICTED_ROLE, SUPER_ADMIN_ROLE } from "@/lib/data-scope";
@@ -16,7 +16,7 @@ async function fetchAccounts(): Promise<Account[]> {
   return data as unknown as Account[];
 }
 
-type NotifyStatus = "승인요청" | "승인" | "반려";
+type NotifyStatus = "승인요청" | "승인" | "반려" | "확인사항요청" | "확인사항답변";
 
 /** 템플릿의 '구분'(#{입금구분}) 자리에 고객명·입금구분·진행 상태를 함께 넣어 보낸다 (예: 홍길동 계약금1 승인요청) */
 async function sendToAll(row: DepositRow, recipients: Account[], status: NotifyStatus) {
@@ -51,17 +51,38 @@ async function sendToAll(row: DepositRow, recipients: Account[], status: NotifyS
   for (const r of results) if (!r.ok) console.error(`[알림톡:${label}] ${r.error}`);
 }
 
-/** 승인 요청: 승인 권한자에게 알린다 (요청한 본인 제외, 비공개 현장은 슈퍼관리자에게만) */
-export async function notifyDepositRequested(row: DepositRow, requesterId: number): Promise<void> {
+/** 승인 권한자에게 알린다 (작성한 본인 제외, 비공개 현장은 슈퍼관리자에게만) */
+async function notifyApprovers(row: DepositRow, excludeId: number, status: NotifyStatus): Promise<void> {
   try {
     const isPrivate = PRIVATE_SITE_NUMBERS.includes(row.현장번호 ?? "");
     const recipients = (await fetchAccounts()).filter((a) => {
       const role = a.역할?.trim() ?? "";
-      return a.id !== requesterId && (isPrivate ? role === SUPER_ADMIN_ROLE : APPROVER_ROLES.includes(role));
+      return a.id !== excludeId && (isPrivate ? role === SUPER_ADMIN_ROLE : APPROVER_ROLES.includes(role));
     });
-    await sendToAll(row, recipients, "승인요청");
+    await sendToAll(row, recipients, status);
   } catch (e) {
-    console.error("[알림톡:승인요청]", e);
+    console.error(`[알림톡:${status}]`, e);
+  }
+}
+
+/** 승인 요청: 승인 권한자에게 알린다 */
+export function notifyDepositRequested(row: DepositRow, requesterId: number): Promise<void> {
+  return notifyApprovers(row, requesterId, "승인요청");
+}
+
+/** 확인사항 답변: 요청자가 의견을 남기면 승인 권한자에게 알린다 */
+export function notifyCommentToApprovers(row: DepositRow, authorId: number): Promise<void> {
+  return notifyApprovers(row, authorId, "확인사항답변");
+}
+
+/** 확인사항 요청: 관리자가 의견을 남기면 승인 요청을 한 사람에게 알린다 */
+export async function notifyCommentToRequester(row: DepositRow, requesterId: number | null): Promise<void> {
+  try {
+    if (requesterId == null) return;
+    const recipients = (await fetchAccounts()).filter((a) => a.id === requesterId);
+    await sendToAll(row, recipients, "확인사항요청");
+  } catch (e) {
+    console.error("[알림톡:확인사항요청]", e);
   }
 }
 

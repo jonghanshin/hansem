@@ -36,8 +36,23 @@ type RequestRecord = DepositRow & {
   관리자의견: string | null;
 };
 
+/** 승인 요청에 대해 관리자·요청자가 주고받은 의견 (승인요청의견 테이블) */
+export type RequestComment = {
+  id: number;
+  구분: "관리자" | "요청자";
+  작성자이름: string | null;
+  내용: string;
+  /** 작성 시각 (한국 시간 표시) */
+  작성일시표시: string;
+};
+
+export const REQUEST_COMMENTS_TABLE = "승인요청의견";
+
+
 export type PendingRequest = Parsed<RequestRecord> & {
   요청자이름: string | null;
+  /** 확인사항 요청·답변 (오래된 순) */
+  의견: RequestComment[];
   /** 요청일시를 한국 시간으로 표시한 문자열 */
   요청일시표시: string;
   /** 수정·삭제 요청의 대상 입금내역 현재 값 (이미 지워졌으면 null) */
@@ -158,12 +173,14 @@ export async function fetchPendingRequests(
   if (targets.error) throw new Error(`대상 입금내역 조회 실패: ${targets.error.message}`);
   const names = new Map((users.data as unknown as { id: number; 이름: string | null }[]).map((u) => [u.id, u.이름]));
   const originals = new Map((targets.data as DepositRecord[]).map((d) => [d.id, toDeposit(d)]));
+  const comments = await fetchRequestComments(requests.map((r) => r.id));
 
   return requests.map((r) => ({
     ...toDeposit(r),
     요청자이름: r.요청자 != null ? (names.get(r.요청자) ?? null) : null,
     요청일시표시: formatRequestedAt(r.요청일시),
     original: r.입금내역id != null ? (originals.get(r.입금내역id) ?? null) : null,
+    의견: comments.get(r.id) ?? [],
   }));
 }
 
@@ -287,4 +304,49 @@ export async function resubmitRequest(id: number, requester: number, row: Deposi
     .maybeSingle();
   if (error) throw new Error(`재요청 실패: ${error.message}`);
   return data !== null;
+}
+
+type CommentRecord = { id: number; created_at: string; 요청id: number; 구분: "관리자" | "요청자"; 작성자이름: string | null; 내용: string };
+
+/** 요청별 의견. 의견 테이블이 아직 없으면(SQL 실행 전) 빈 목록으로 보여준다 */
+async function fetchRequestComments(requestIds: number[]): Promise<Map<number, RequestComment[]>> {
+  const out = new Map<number, RequestComment[]>();
+  if (requestIds.length === 0) return out;
+  const { data, error } = await getSupabaseAdmin()
+    .from(REQUEST_COMMENTS_TABLE)
+    .select("id, created_at, 요청id, 구분, 작성자이름, 내용")
+    .in("요청id", requestIds)
+    .order("id");
+  if (error) {
+    console.error("[approvals] 승인요청의견 조회 실패:", error.message);
+    return out;
+  }
+  for (const c of data as unknown as CommentRecord[]) {
+    const list = out.get(c.요청id) ?? [];
+    list.push({ id: c.id, 구분: c.구분, 작성자이름: c.작성자이름, 내용: c.내용, 작성일시표시: formatRequestedAt(c.created_at) });
+    out.set(c.요청id, list);
+  }
+  return out;
+}
+
+/** 의견을 달 수 있는지 판단할 때 쓰는 요청 정보 */
+export async function loadRequestForComment(id: number): Promise<RequestRecord | null> {
+  const { data, error } = await getSupabaseAdmin().from(PENDING_DEPOSITS_TABLE).select(REQUEST_COLUMNS).eq("id", id).maybeSingle();
+  if (error) throw new Error(`승인 요청 조회 실패: ${error.message}`);
+  return data as unknown as RequestRecord | null;
+}
+
+export async function insertRequestComment(
+  requestId: number,
+  side: "관리자" | "요청자",
+  author: { id: number; name: string },
+  text: string,
+): Promise<void> {
+  const { error } = await getSupabaseAdmin()
+    .from(REQUEST_COMMENTS_TABLE)
+    .insert({ 요청id: requestId, 구분: side, 작성자: author.id, 작성자이름: author.name, 내용: text });
+  if (error) {
+    const missing = /relation|does not exist|schema cache/i.test(error.message);
+    throw new Error(missing ? "의견을 저장할 승인요청의견 테이블이 없습니다. 관리자에게 SQL 실행을 요청해 주세요." : `의견 저장 실패: ${error.message}`);
+  }
 }
