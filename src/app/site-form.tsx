@@ -25,6 +25,7 @@ import {
 } from "@/lib/sites";
 
 import { ComputedSourcesDialog } from "./computed-sources-dialog";
+import { SiteFilesSection } from "./site-files-section";
 
 type FormValues = Record<SiteFieldKey, string>;
 
@@ -421,6 +422,7 @@ export function SiteForm({
               })}
             </div>
             {section.title === "금액" && <ContractSumHint values={values} />}
+            {section.title === "영업" && <SiteFilesSection site={site} onChange={onSynced} />}
           </fieldset>
         ))}
       </div>

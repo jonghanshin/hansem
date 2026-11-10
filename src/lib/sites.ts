@@ -164,7 +164,10 @@ export type SiteInput = {
   특이사항: string | null;
 };
 
-export type Site = SiteInput & { id: number; created_at: string };
+/** 현장 문서 내려받기 정보 (JSON 문자열, site-files-shared의 SiteFileInfo). 화면 입력 항목이 아니라 업로드로만 바뀐다 */
+export type SiteFileColumns = { 최종계약서?: string | null; 최종견적서?: string | null; 자재리스트?: string | null };
+
+export type Site = SiteInput & SiteFileColumns & { id: number; created_at: string };
 
 /** 입금 등록 화면에서 현장번호 선택 시 고객명/영업사원/계약가 자동 채움용 (완료일: 진행 중 여부 판단) */
 export type SiteSummary = Pick<Site, "현장번호" | "고객명" | "영업사원" | "계약가" | "완료일">;
