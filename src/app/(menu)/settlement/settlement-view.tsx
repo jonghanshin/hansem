@@ -2,14 +2,30 @@
 
 import { Fragment, useMemo, useState, useTransition } from "react";
 
-import { computeSettlementAction } from "@/app/settlement-actions";
-import type { SettlementCandidate, SettlementDeposit, SettlementExtraCost, SettlementLine, SettlementResult } from "@/lib/settlement";
+import {
+  computeSettlementAction,
+  saveSettlementAction,
+  type CarryIn,
+  type SavedSettlement,
+  type SettlementWithCarryIn,
+} from "@/app/settlement-actions";
+import type { SettlementCandidate, SettlementDeposit, SettlementExtraCost, SettlementLine } from "@/lib/settlement";
 import { UPLOAD_TABLE_KEYS, UPLOAD_TABLES, type UploadTable } from "@/lib/settlement-upload";
+import {
+  DEDUCTION,
+  netOutflowParts,
+  netProfit,
+  outflowParts,
+  outflowRows,
+  rowsSum,
+  summarizeSettlement,
+  type OutflowGroup,
+} from "@/lib/settlement-calc";
 import { formatMoney, withoutVat, withVat } from "@/lib/sites";
 
+import { SettlementInfoDialog } from "./settlement-info-dialog";
 import { SettlementUploadDialog } from "./settlement-upload-dialog";
 
-type OutflowGroup = "한샘" | "홈씨씨" | "시공비포함" | "시공비미포함" | "기타";
 /** 상세 팝업 대상: 총입금액 또는 총출금액의 한 묶음 */
 type DetailGroup = "입금" | OutflowGroup;
 
@@ -38,80 +54,104 @@ function options(values: (string | null)[]) {
   return [...new Set(values.map((v) => v?.trim()).filter((v): v is string => !!v))];
 }
 
+function monthOptionsOf(sites: SettlementCandidate[]) {
+  return options(sites.map((s) => s.정산월)).sort((a, b) => monthOrder(a) - monthOrder(b) || a.localeCompare(b, "ko"));
+}
+
+/** 정산월 기본값: 이번 달이 목록에 있으면 이번 달, 없으면 첫 번째 월 */
+function defaultMonth(monthOptions: string[]) {
+  const current = `${new Date().getMonth() + 1}월`;
+  return monthOptions.includes(current) ? current : (monthOptions[0] ?? "");
+}
+
 function Money({ value }: { value: number | null }) {
   return value === null ? <span className="text-zinc-300">-</span> : formatMoney(value);
 }
 
-const MAIN_OUTFLOW_GROUPS = ["홈씨씨", "시공비"];
-const VAT_EXCLUDED = "미포함";
-/** 정산대상금액 계산 시 이익금액 합계에서 빼는 공제금 */
-const DEDUCTION = 2_500_000;
+/** 이익금액 합계에서 공제금을 뺀 정산대상금액과, 그 결과인 이월금액 또는 정산금액. 정산정보 테이블에 저장한다 */
+function SettlementSummary({ lines, ids, carryIn }: { lines: SettlementLine[]; ids: number[]; carryIn: CarryIn | null }) {
+  const { profit, target, settlement, carryOver } = summarizeSettlement(lines, carryIn?.금액 ?? 0);
+  const [saved, setSaved] = useState<SavedSettlement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const salesNames = [...new Set(lines.map((l) => l.영업사원?.trim() || "(없음)"))];
+  const months = [...new Set(lines.map((l) => l.정산월?.trim() || "(없음)"))];
+  const single = salesNames.length === 1 && months.length === 1 && !salesNames.includes("(없음)") && !months.includes("(없음)");
 
-/** 총출금액의 구성: 한샘(부가세 포함 공급가+추가시공비)·홈씨씨·시공비(한샘외, 부가세 포함/미포함)·기타 */
-function outflowParts(line: SettlementLine) {
-  return {
-    한샘: line.한샘["공급가(부가세포함)"] + line.한샘.추가시공비,
-    홈씨씨: rowsSum(outflowRows(line, "홈씨씨")),
-    시공비포함: rowsSum(outflowRows(line, "시공비포함")),
-    시공비미포함: rowsSum(outflowRows(line, "시공비미포함")),
-    기타: rowsSum(outflowRows(line, "기타")),
-  };
-}
-
-/** 정산결과 표의 금액: 부가세가 포함된 한샘·홈씨씨·시공비는 부가세를 뺀다 */
-function netOutflowParts(line: SettlementLine) {
-  const parts = outflowParts(line);
-  return {
-    ...parts,
-    한샘: withoutVat(parts.한샘),
-    홈씨씨: withoutVat(parts.홈씨씨),
-    시공비포함: withoutVat(parts.시공비포함),
-  };
-}
-
-/** 이익금액: 계약금(부가세제외) - 부가세 제외 총출금액. 계약금이 없으면 null */
-function netProfit(line: SettlementLine) {
-  if (line.계약금 === null) return null;
-  return withoutVat(line.계약금) - Object.values(netOutflowParts(line)).reduce((a, b) => a + b, 0);
-}
-
-/** 정산금액: 정산대상금액을 구간별 근로자 비율(30·35·40%)로 누진 계산 */
-function workerShare(amount: number) {
-  const tier1 = Math.min(amount, 5_000_000);
-  const tier2 = Math.max(Math.min(amount, 10_000_000) - 5_000_000, 0);
-  const tier3 = Math.max(amount - 10_000_000, 0);
-  return Math.round((tier1 * 30 + tier2 * 35 + tier3 * 40) / 100);
-}
-
-/** 이익금액 합계에서 공제금을 뺀 정산대상금액과, 그 결과인 이월금액 또는 정산금액 */
-function SettlementSummary({ lines }: { lines: SettlementLine[] }) {
-  const profit = lines.reduce((acc, l) => acc + (netProfit(l) ?? 0), 0);
-  const target = profit - DEDUCTION;
   const items: [string, number][] = [
     ["이익금액 합계", profit],
     ["공제금", -DEDUCTION],
+    ...(carryIn ? [["전달 누적이월금", -carryIn.금액] as [string, number]] : []),
     ["정산대상금액", target],
   ];
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const res = await saveSettlementAction(ids);
+      if (res.ok) setSaved(res.data);
+      else setError(res.error);
+    });
+  }
+
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
-      <dl className="ml-auto max-w-sm space-y-1">
-        {items.map(([label, value]) => (
-          <div key={label} className="flex justify-between gap-6">
-            <dt className="text-zinc-600">{label}</dt>
-            <dd className="tabular-nums text-zinc-900">{formatMoney(value)}</dd>
-          </div>
-        ))}
-        <div className="flex justify-between gap-6 border-t border-zinc-200 pt-1 font-semibold">
-          <dt className="text-zinc-900">{target < 0 ? "이월금액" : "정산금액"}</dt>
-          <dd className={`tabular-nums ${target < 0 ? "text-red-600" : "text-blue-700"}`}>
-            {formatMoney(target < 0 ? target : workerShare(target))}
-          </dd>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-2 text-xs text-zinc-600">
+          <p>
+            영업사원 <b className="text-zinc-900">{salesNames.join(", ")}</b> · 정산월{" "}
+            <b className="text-zinc-900">{months.join(", ")}</b>
+          </p>
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending || !single}
+            title={single ? undefined : "영업사원과 정산월이 하나씩인 현장만 골라야 저장할 수 있습니다"}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          >
+            {pending ? "저장 중…" : "정산결과 저장"}
+          </button>
+          {!single && (
+            <p className="text-amber-700">영업사원과 정산월을 하나씩 골라 정산해야 누적이월금이 반영되고 저장할 수 있습니다.</p>
+          )}
+          {carryIn && (
+            <p>
+              전달 누적이월금{" "}
+              {carryIn.리셋
+                ? "0원 (정산시작월 기준 3개월째라 리셋)"
+                : carryIn.이전정산월
+                  ? `${formatMoney(carryIn.금액)}원 (${carryIn.이전정산월} 정산정보)`
+                  : "0원 (전달 정산정보 없음)"}
+            </p>
+          )}
+          {error && <p role="alert" className="whitespace-pre-line text-red-700">{error}</p>}
+          {saved && (
+            <p role="status" className="text-emerald-700">
+              {saved.영업사원} {saved.정산월} 정산정보를 {saved.updated ? "갱신" : "저장"}했습니다 ·{" "}
+              {saved.정산금 > 0 ? `정산금 ${formatMoney(saved.정산금)}원` : "정산금 없음"} · 누적이월금 {formatMoney(saved.누적이월금)}원
+            </p>
+          )}
         </div>
-      </dl>
+        <dl className="w-full max-w-sm space-y-1">
+          {items.map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-6">
+              <dt className="text-zinc-600">{label}</dt>
+              <dd className="tabular-nums text-zinc-900">{formatMoney(value)}</dd>
+            </div>
+          ))}
+          <div className="flex justify-between gap-6 border-t border-zinc-200 pt-1 font-semibold">
+            <dt className="text-zinc-900">{target < 0 ? "이월금액" : "정산금액"}</dt>
+            <dd className={`tabular-nums ${target < 0 ? "text-amber-700" : "text-blue-700"}`}>
+              {formatMoney(target < 0 ? carryOver : settlement)}
+            </dd>
+          </div>
+        </dl>
+      </div>
       <div className="mt-3 border-t border-zinc-200 pt-2 text-xs leading-relaxed text-zinc-600">
         <p>이익금액 = 계약금(부가세제외) - 총출금액 합계</p>
-        <p>정산대상금액 = 이익금액 합계 - 공제금({formatMoney(DEDUCTION)}원)</p>
-        <p>정산대상금액이 -이면 이월금액, +이면 아래 공식으로 계산한 정산금액(근로자 몫)을 표시합니다.</p>
+        <p>정산대상금액 = 이익금액 합계 - 공제금({formatMoney(DEDUCTION)}원) - 전달 누적이월금</p>
+        <p>정산대상금액이 -이면 그 금액만큼 이월금액(= 이번 달 누적이월금), +이면 아래 공식으로 계산한 정산금액(근로자 몫)을 표시하고 누적이월금은 0이 됩니다.</p>
+        <p>정산시작월부터 3개월째 되는 달(예: 1월 시작 → 4월, 7월, 10월)에는 전달 누적이월금을 0으로 리셋합니다.</p>
         <p className="mt-1 font-semibold text-zinc-700">정산대상금액 기준 정산 공식</p>
         <ol className="mt-0.5 list-decimal pl-4">
           <li>월 이익 500만원 이하 구간: 사업주 70% : 근로자 30%</li>
@@ -214,21 +254,20 @@ function SettlementTable({
 
 export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
   const [sales, setSales] = useState("");
-  const [month, setMonth] = useState("");
+  // 정산월은 반드시 하나를 고른다 (정산결과는 영업사원·정산월 단위로 저장)
+  const [month, setMonth] = useState(() => defaultMonth(monthOptionsOf(sites)));
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
-  const [result, setResult] = useState<SettlementResult | null>(null);
+  const [result, setResult] = useState<SettlementWithCarryIn | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [detail, setDetail] = useState<{ line: SettlementLine; group: DetailGroup; netOfVat: boolean } | null>(null);
   const [uploadTable, setUploadTable] = useState<UploadTable | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const salesOptions = useMemo(() => options(sites.map((s) => s.영업사원)).sort((a, b) => a.localeCompare(b, "ko")), [sites]);
-  const monthOptions = useMemo(
-    () => options(sites.map((s) => s.정산월)).sort((a, b) => monthOrder(a) - monthOrder(b) || a.localeCompare(b, "ko")),
-    [sites],
-  );
+  const monthOptions = useMemo(() => monthOptionsOf(sites), [sites]);
   const rows = useMemo(
-    () => sites.filter((s) => (!sales || s.영업사원?.trim() === sales) && (!month || s.정산월?.trim() === month)),
+    () => sites.filter((s) => (!sales || s.영업사원?.trim() === sales) && !!month && s.정산월?.trim() === month),
     [sites, sales, month],
   );
   const allChecked = rows.length > 0 && rows.every((s) => selected.has(s.id));
@@ -277,6 +316,13 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
           정산 <span className="ml-1 text-sm font-normal text-zinc-500">미정산 현장 {rows.length}건</span>
         </h1>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setInfoOpen(true)}
+            className="rounded-md bg-zinc-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-zinc-700"
+          >
+            정산결과
+          </button>
           {UPLOAD_TABLE_KEYS.map((table) => (
             <button
               key={table}
@@ -289,6 +335,8 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
           ))}
         </div>
       </header>
+
+      {infoOpen && <SettlementInfoDialog onClose={() => setInfoOpen(false)} />}
 
       {uploadTable && (
         <SettlementUploadDialog
@@ -314,7 +362,7 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
         <label className="w-full sm:w-auto">
           <span className="mb-1 block text-xs font-medium text-zinc-700">정산월</span>
           <select value={month} onChange={(e) => changeFilter(() => setMonth(e.target.value))} className={SELECT}>
-            <option value="">전체</option>
+            {monthOptions.length === 0 && <option value="">정산월 없음</option>}
             {monthOptions.map((v) => (
               <option key={v} value={v}>
                 {v}
@@ -409,7 +457,7 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
             정산결과 <span className="ml-1 text-sm font-normal text-zinc-500">{result.lines.length}개 현장</span>
           </h2>
           <SettlementTable lines={result.lines} netOfVat onDetail={openNetDetail} />
-          <SettlementSummary lines={result.lines} />
+          <SettlementSummary lines={result.lines} ids={result.lines.map((l) => l.id)} carryIn={result.carryIn} />
         </section>
       )}
 
@@ -428,17 +476,6 @@ function DetailButton({ onClick }: { onClick: () => void }) {
       상세
     </button>
   );
-}
-
-const rowsSum = (rows: SettlementDeposit[]) => rows.reduce((acc, r) => acc + (r.금액 ?? 0), 0);
-
-function outflowRows(line: SettlementLine, group: OutflowGroup) {
-  return line.출금내역.filter((r) => {
-    if (group === "기타") return !MAIN_OUTFLOW_GROUPS.includes(r.묶음);
-    if (group !== "시공비포함" && group !== "시공비미포함") return r.묶음 === group;
-    // 부가세포함 값이 없는 예전 내역은 입력 기본값과 같이 포함으로 본다
-    return r.묶음 === "시공비" && (r.부가세포함 === VAT_EXCLUDED) === (group === "시공비미포함");
-  });
 }
 
 function hasOutflowDetail(line: SettlementLine, group: OutflowGroup) {

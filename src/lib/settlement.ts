@@ -42,6 +42,7 @@ export type SettlementLine = {
   현장번호: string;
   고객명: string | null;
   영업사원: string | null;
+  영업사원ID: string | null;
   정산월: string | null;
   /** 현장정보.계약가 */
   계약금: number | null;
@@ -207,6 +208,7 @@ export async function computeSettlement(ids: number[], scope: DataScope): Promis
       현장번호: no,
       고객명: s.고객명,
       영업사원: s.영업사원,
+      영업사원ID: s.영업사원ID,
       정산월: s.정산월,
       계약금: s.계약가,
       총입금액: sum(입금내역),
