@@ -6,6 +6,7 @@ import { useId, useRef, useState, useTransition } from "react";
 
 import { createPostAction, updatePostAction } from "@/app/board-actions";
 import {
+  BOARD_CATEGORIES,
   BOARD_FILE_MAX_BYTES,
   BOARD_FILES_PER_POST,
   BOARD_TITLE_MAX,
@@ -13,13 +14,22 @@ import {
   formatFileSize,
   textToHtml,
   validateUploadFiles,
+  type BoardCategory,
   type BoardPost,
 } from "@/lib/board-shared";
 
 import { RichEditor } from "./rich-editor";
 
-/** 글쓰기(post가 null) / 수정 화면 */
-export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNotice: boolean }) {
+/** 글쓰기(post가 null) / 수정 화면. defaultCategory는 카테고리 화면에서 글쓰기를 눌렀을 때 미리 고를 값 */
+export function BoardForm({
+  post,
+  canNotice,
+  defaultCategory = null,
+}: {
+  post: BoardPost | null;
+  canNotice: boolean;
+  defaultCategory?: BoardCategory | null;
+}) {
   const idp = useId();
   const router = useRouter();
   const isEdit = post !== null;
@@ -30,6 +40,8 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
   const [contentEmpty, setContentEmpty] = useState(!post);
   const [contentTouched, setContentTouched] = useState(false);
   const [notice, setNotice] = useState(post?.notice ?? false);
+  const initialCategory = post ? post.category : defaultCategory;
+  const [category, setCategory] = useState<string>(initialCategory ?? "");
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [removeIds, setRemoveIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +53,7 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
     title !== (post?.title ?? "") ||
     contentTouched ||
     notice !== (post?.notice ?? false) ||
+    category !== (initialCategory ?? "") ||
     newFiles.length > 0 ||
     removeIds.length > 0;
 
@@ -68,6 +81,7 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
     const form = new FormData();
     form.set("title", title);
     form.set("content", content);
+    if (category) form.set("category", category);
     if (notice) form.set("notice", "on");
     for (const f of newFiles) form.append("files", f);
     for (const id of removeIds) form.append("removeFileIds", String(id));
@@ -84,7 +98,7 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
 
   function cancel() {
     if (dirty && !window.confirm("작성 중인 내용이 저장되지 않습니다. 나가시겠습니까?")) return;
-    router.push(isEdit ? `/board/${post.id}` : "/board");
+    router.push(isEdit ? `/board/${post.id}` : defaultCategory ? `/board?cat=${encodeURIComponent(defaultCategory)}` : "/board");
   }
 
   return (
@@ -99,6 +113,28 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
       </div>
 
       <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
+        <div>
+          <Label>카테고리</Label>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="카테고리">
+            {[{ value: "", label: "없음 (전체에만 표시)" }, ...BOARD_CATEGORIES.map((c) => ({ value: c, label: c }))].map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                role="radio"
+                aria-checked={category === c.value}
+                onClick={() => setCategory(c.value)}
+                className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
+                  category === c.value
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <label className="block">
           <Label required>제목</Label>
           <input

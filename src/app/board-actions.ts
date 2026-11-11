@@ -20,7 +20,9 @@ import {
   BOARD_IMAGE_TYPES,
   BOARD_TITLE_MAX,
   formatFileSize,
+  isBoardCategory,
   validateUploadFiles,
+  type BoardCategory,
 } from "@/lib/board-shared";
 import type { ActionResult } from "@/lib/sites";
 
@@ -33,7 +35,14 @@ function fail(e: unknown): { ok: false; error: string } {
   return { ok: false, error: e instanceof Error ? e.message : String(e) };
 }
 
-type ParsedForm = { title: string; content: string; notice: boolean; files: File[]; removeIds: number[] };
+type ParsedForm = {
+  title: string;
+  content: string;
+  category: BoardCategory | null;
+  notice: boolean;
+  files: File[];
+  removeIds: number[];
+};
 
 function parseForm(form: FormData): ParsedForm | string {
   const title = String(form.get("title") ?? "").trim();
@@ -49,7 +58,15 @@ function parseForm(form: FormData): ParsedForm | string {
     .getAll("removeFileIds")
     .map((v) => Number(v))
     .filter((n) => Number.isSafeInteger(n) && n > 0);
-  return { title, content, notice: form.get("notice") === "on", files, removeIds };
+  const category = form.get("category");
+  return {
+    title,
+    content,
+    category: isBoardCategory(category) ? category : null,
+    notice: form.get("notice") === "on",
+    files,
+    removeIds,
+  };
 }
 
 export async function createPostAction(form: FormData): Promise<ActionResult<{ id: number }>> {
@@ -67,6 +84,7 @@ export async function createPostAction(form: FormData): Promise<ActionResult<{ i
       작성자이름: auth.name,
       공지: auth.canApprove && parsed.notice,
       서식: true,
+      카테고리: parsed.category,
     });
     try {
       await saveAttachments(id, parsed.files);
@@ -101,6 +119,7 @@ export async function updatePostAction(id: number, form: FormData): Promise<Acti
       // 관리자가 아니면 공지 여부는 바꿀 수 없다
       공지: auth.canApprove ? parsed.notice : post.notice,
       서식: true,
+      카테고리: parsed.category,
     });
     // 수정하면서 본문에서 뺀 이미지는 디스크에서도 지운다
     const kept = new Set(imageNamesIn(parsed.content));

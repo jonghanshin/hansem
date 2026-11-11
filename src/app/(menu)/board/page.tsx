@@ -4,7 +4,15 @@ import { Suspense } from "react";
 
 import { requireUser } from "@/lib/auth";
 import { fetchBoardList, type BoardSearchField } from "@/lib/board";
-import { BOARD_PAGE_SIZE, formatBoardDate, type BoardPostSummary } from "@/lib/board-shared";
+import {
+  BOARD_CATEGORIES,
+  BOARD_CATEGORY_BADGE,
+  BOARD_PAGE_SIZE,
+  formatBoardDate,
+  isBoardCategory,
+  type BoardCategory,
+  type BoardPostSummary,
+} from "@/lib/board-shared";
 
 export const metadata = { title: "게시판 | 현장정보 관리" };
 
@@ -37,8 +45,10 @@ async function BoardList({ searchParams }: { searchParams: SearchParams }) {
   const q = one(sp.q).trim();
   const field = (FIELDS.some((f) => f.value === one(sp.field)) ? one(sp.field) : "all") as BoardSearchField;
   const page = Math.max(1, Math.floor(Number(one(sp.page)) || 1));
+  const rawCat = one(sp.cat);
+  const category = isBoardCategory(rawCat) ? rawCat : null;
 
-  const result = await fetchBoardList({ page, q, field }).then(
+  const result = await fetchBoardList({ page, q, field, category }).then(
     (data) => ({ ok: true as const, ...data }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );
@@ -55,6 +65,7 @@ async function BoardList({ searchParams }: { searchParams: SearchParams }) {
   const lastPage = Math.max(1, Math.ceil(total / BOARD_PAGE_SIZE));
   const pageHref = (p: number) => {
     const params = new URLSearchParams();
+    if (category) params.set("cat", category);
     if (q) params.set("q", q);
     if (q && field !== "all") params.set("field", field);
     if (p > 1) params.set("page", String(p));
@@ -67,11 +78,29 @@ async function BoardList({ searchParams }: { searchParams: SearchParams }) {
 
   return (
     <div className="flex flex-1 flex-col lg:min-h-0">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold text-zinc-900">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 bg-white px-4 pt-3 sm:px-6">
+        <h1 className="pb-3 text-lg font-semibold text-zinc-900">
           게시판 <span className="ml-1 text-sm font-normal text-zinc-500">{total.toLocaleString()}건</span>
         </h1>
-        <form action="/board" className="ml-auto flex flex-wrap items-center gap-2" role="search">
+        <nav className="flex gap-1 self-end" aria-label="게시판 카테고리">
+          {[null, ...BOARD_CATEGORIES].map((c) => {
+            const active = c === category;
+            return (
+              <Link
+                key={c ?? "all"}
+                href={c ? `/board?cat=${encodeURIComponent(c)}` : "/board"}
+                aria-current={active ? "page" : undefined}
+                className={`-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm font-medium ${
+                  active ? "border-blue-600 text-blue-700" : "border-transparent text-zinc-500 hover:text-zinc-900"
+                }`}
+              >
+                {c ?? "전체"}
+              </Link>
+            );
+          })}
+        </nav>
+        <form action="/board" className="ml-auto flex flex-wrap items-center gap-2 pb-3" role="search">
+          {category && <input type="hidden" name="cat" value={category} />}
           <select name="field" defaultValue={field} className={INPUT} aria-label="검색 대상">
             {FIELDS.map((f) => (
               <option key={f.value} value={f.value}>
@@ -91,12 +120,15 @@ async function BoardList({ searchParams }: { searchParams: SearchParams }) {
             검색
           </button>
           {q && (
-            <Link href="/board" className="text-sm text-zinc-500 hover:text-zinc-800 hover:underline">
+            <Link
+              href={category ? `/board?cat=${encodeURIComponent(category)}` : "/board"}
+              className="text-sm text-zinc-500 hover:text-zinc-800 hover:underline"
+            >
               초기화
             </Link>
           )}
           <Link
-            href="/board/new"
+            href={category ? `/board/new?cat=${encodeURIComponent(category)}` : "/board/new"}
             className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
           >
             + 글쓰기
@@ -184,6 +216,7 @@ async function BoardList({ searchParams }: { searchParams: SearchParams }) {
 function PostTitleLink({ p }: { p: BoardPostSummary }) {
   return (
     <Link href={`/board/${p.id}`} className={`min-w-0 break-all text-zinc-900 hover:text-blue-700 hover:underline ${p.notice ? "font-semibold" : ""}`}>
+      {p.category && <CategoryBadge category={p.category} />}
       {p.title}
       {p.fileCount > 0 && (
         <span className="ml-1.5 text-xs text-zinc-400" title={`첨부파일 ${p.fileCount}개`}>
@@ -191,6 +224,14 @@ function PostTitleLink({ p }: { p: BoardPostSummary }) {
         </span>
       )}
     </Link>
+  );
+}
+
+function CategoryBadge({ category }: { category: BoardCategory }) {
+  return (
+    <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 align-[1px] text-[11px] font-semibold ${BOARD_CATEGORY_BADGE[category]}`}>
+      {category}
+    </span>
   );
 }
 

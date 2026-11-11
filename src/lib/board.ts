@@ -14,7 +14,9 @@ import {
   BOARD_IMAGE_PATH,
   BOARD_IMAGE_TYPES,
   BOARD_PAGE_SIZE,
+  isBoardCategory,
   type BoardAttachment,
+  type BoardCategory,
   type BoardPost,
   type BoardPostSummary,
 } from "@/lib/board-shared";
@@ -30,6 +32,7 @@ type PostRecord = {
   작성자이름: string | null;
   공지: boolean;
   서식: boolean | null;
+  카테고리: string | null;
   조회수: number;
   작성일시: string;
   수정일시: string | null;
@@ -45,7 +48,7 @@ type FileRecord = {
   등록일시: string;
 };
 
-const LIST_COLUMNS = "id, 제목, 작성자, 작성자이름, 공지, 조회수, 작성일시";
+const LIST_COLUMNS = "id, 제목, 카테고리, 작성자, 작성자이름, 공지, 조회수, 작성일시";
 const FILE_COLUMNS = "id, 게시글id, 원본파일명, 저장파일명, 크기, 형식, 등록일시";
 
 /** 테이블이 아직 없을 때 안내 문구 */
@@ -71,12 +74,20 @@ export async function fetchBoardList(opts: {
   page: number;
   q: string;
   field: BoardSearchField;
+  /** null이면 전체 */
+  category: BoardCategory | null;
 }): Promise<{ notices: BoardPostSummary[]; posts: BoardPostSummary[]; total: number }> {
   const sb = getSupabaseAdmin();
   const q = cleanQuery(opts.q);
   const from = (opts.page - 1) * BOARD_PAGE_SIZE;
 
   let query = sb.from(BOARD_TABLE).select(LIST_COLUMNS, { count: "exact" }).eq("공지", false);
+  let noticeQuery = sb.from(BOARD_TABLE).select(LIST_COLUMNS).eq("공지", true);
+  if (opts.category) {
+    query = query.eq("카테고리", opts.category);
+    // 카테고리 화면에는 그 카테고리 공지 + 카테고리 없는 공통 공지
+    noticeQuery = noticeQuery.or(`카테고리.is.null,카테고리.eq.${opts.category}`);
+  }
   if (q) {
     if (opts.field === "title") query = query.ilike("제목", `%${q}%`);
     else if (opts.field === "author") query = query.ilike("작성자이름", `%${q}%`);
@@ -85,7 +96,7 @@ export async function fetchBoardList(opts: {
   const [list, notices] = await Promise.all([
     query.order("id", { ascending: false }).range(from, from + BOARD_PAGE_SIZE - 1),
     // 공지는 검색과 상관없이 모든 페이지 위에 고정
-    sb.from(BOARD_TABLE).select(LIST_COLUMNS).eq("공지", true).order("id", { ascending: false }).limit(20),
+    noticeQuery.order("id", { ascending: false }).limit(20),
   ]);
   if (list.error) throw tableError("게시글 목록 조회", list.error.message);
   if (notices.error) throw tableError("공지 조회", notices.error.message);
@@ -95,6 +106,7 @@ export async function fetchBoardList(opts: {
   const toSummary = (r: PostRecord): BoardPostSummary => ({
     id: r.id,
     title: r.제목,
+    category: isBoardCategory(r.카테고리) ? r.카테고리 : null,
     authorName: r.작성자이름,
     notice: r.공지,
     views: r.조회수,
@@ -132,6 +144,7 @@ export async function fetchPost(id: number): Promise<BoardPost | null> {
     title: r.제목,
     content: r.내용,
     html: r.서식 === true,
+    category: isBoardCategory(r.카테고리) ? r.카테고리 : null,
     authorId: r.작성자,
     authorName: r.작성자이름,
     notice: r.공지,
@@ -155,6 +168,7 @@ export async function insertPost(row: {
   작성자이름: string;
   공지: boolean;
   서식: boolean;
+  카테고리: BoardCategory | null;
 }): Promise<number> {
   const { data, error } = await getSupabaseAdmin().from(BOARD_TABLE).insert(row).select("id").single();
   if (error) throw tableError("게시글 등록", error.message);
@@ -163,7 +177,7 @@ export async function insertPost(row: {
 
 export async function updatePost(
   id: number,
-  row: { 제목: string; 내용: string; 공지: boolean; 서식: boolean },
+  row: { 제목: string; 내용: string; 공지: boolean; 서식: boolean; 카테고리: BoardCategory | null },
 ): Promise<void> {
   const { error } = await getSupabaseAdmin()
     .from(BOARD_TABLE)

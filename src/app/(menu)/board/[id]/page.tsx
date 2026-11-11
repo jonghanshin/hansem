@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { requireUser } from "@/lib/auth";
 import { fetchPost, increaseViews } from "@/lib/board";
 import { sanitizeBoardHtml } from "@/lib/board-html";
-import { formatBoardDate, formatFileSize, viewableType } from "@/lib/board-shared";
+import { BOARD_CATEGORY_BADGE, formatBoardDate, formatFileSize, viewableType } from "@/lib/board-shared";
 import { canApprove } from "@/lib/data-scope";
 
 import { DeletePostButton } from "../delete-post-button";
@@ -49,10 +49,12 @@ async function PostView({ params }: { params: Params }) {
   const counted = post.authorId !== session.uid;
   if (counted) await increaseViews(post.id);
   const canEdit = post.authorId === session.uid || canApprove(session);
+  // 목록으로 돌아갈 때는 글의 카테고리 화면으로
+  const listHref = post.category ? `/board?cat=${encodeURIComponent(post.category)}` : "/board";
 
   return (
     <article className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6">
-      <Link href="/board" className="text-sm text-zinc-500 hover:text-zinc-800 hover:underline">
+      <Link href={listHref} className="text-sm text-zinc-500 hover:text-zinc-800 hover:underline">
         ← 목록
       </Link>
 
@@ -61,6 +63,14 @@ async function PostView({ params }: { params: Params }) {
           <h1 className="flex flex-wrap items-center gap-2 text-lg font-semibold break-all text-zinc-900">
             {post.notice && (
               <span className="rounded bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-white">공지</span>
+            )}
+            {post.category && (
+              <Link
+                href={listHref}
+                className={`rounded px-1.5 py-0.5 text-xs font-semibold hover:underline ${BOARD_CATEGORY_BADGE[post.category]}`}
+              >
+                {post.category}
+              </Link>
             )}
             {post.title}
           </h1>
@@ -130,7 +140,7 @@ async function PostView({ params }: { params: Params }) {
             </Link>
           </>
         )}
-        <Link href="/board" className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700">
+        <Link href={listHref} className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700">
           목록
         </Link>
       </div>

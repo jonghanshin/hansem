@@ -1,6 +1,21 @@
 // 게시판: 서버와 화면이 함께 쓰는 타입·제한값
 
 export const BOARD_PAGE_SIZE = 15;
+
+/** 게시판 카테고리. 카테고리가 없는 글(null)은 '전체'에서만 보인다 */
+export const BOARD_CATEGORIES = ["견적", "계약", "교육"] as const;
+export type BoardCategory = (typeof BOARD_CATEGORIES)[number];
+
+export function isBoardCategory(v: unknown): v is BoardCategory {
+  return typeof v === "string" && (BOARD_CATEGORIES as readonly string[]).includes(v);
+}
+
+/** 카테고리 배지 색 (Tailwind가 찾을 수 있게 전체 문자열로) */
+export const BOARD_CATEGORY_BADGE: Record<BoardCategory, string> = {
+  견적: "bg-sky-100 text-sky-800",
+  계약: "bg-emerald-100 text-emerald-800",
+  교육: "bg-violet-100 text-violet-800",
+};
 export const BOARD_TITLE_MAX = 200;
 export const BOARD_CONTENT_MAX = 20000;
 /** 서식 있는 글(HTML)의 최대 길이. 태그·스타일이 포함되므로 텍스트보다 넉넉하게 */
@@ -48,6 +63,7 @@ export type BoardAttachment = {
 export type BoardPostSummary = {
   id: number;
   title: string;
+  category: BoardCategory | null;
   authorName: string | null;
   notice: boolean;
   views: number;
@@ -61,6 +77,7 @@ export type BoardPost = {
   content: string;
   /** true면 content가 서식 있는 HTML, false면 예전 방식의 일반 텍스트 */
   html: boolean;
+  category: BoardCategory | null;
   authorId: number | null;
   authorName: string | null;
   notice: boolean;
