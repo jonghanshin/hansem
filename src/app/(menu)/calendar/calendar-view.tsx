@@ -28,6 +28,8 @@ import {
 
 /** 한 칸에 바로 보여 줄 일정 수. 넘치면 "+N개"로 하루 목록을 연다 */
 const MAX_PER_CELL = 3;
+/** 이 시간 안에 같은 날짜를 다시 누르면 두 번 탭으로 본다 */
+const DOUBLE_TAP_MS = 280;
 
 const INPUT =
   "w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:bg-zinc-100 disabled:text-zinc-400";
@@ -52,6 +54,28 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
   const router = useRouter();
   const [navigating, startNavigation] = useTransition();
   const [dialog, setDialog] = useState<DialogState>(null);
+
+  // 날짜 칸 두 번 탭(더블클릭) → 그날 전체 일정 목록.
+  // 모바일 브라우저는 dblclick 이벤트가 잘 오지 않아 클릭 간격으로 직접 판단한다.
+  // 한 번만 누르면 잠깐 기다렸다가 원래 동작(새 일정 / 일정 보기)을 한다.
+  const pendingTap = useRef<{ date: string; timer: number } | null>(null);
+  useEffect(() => () => window.clearTimeout(pendingTap.current?.timer), []);
+  const tapDay = (date: string, onSingleTap: () => void) => {
+    const prev = pendingTap.current;
+    if (prev) window.clearTimeout(prev.timer);
+    if (prev?.date === date) {
+      pendingTap.current = null;
+      setDialog({ kind: "day", date });
+      return;
+    }
+    pendingTap.current = {
+      date,
+      timer: window.setTimeout(() => {
+        pendingTap.current = null;
+        onSingleTap();
+      }, DOUBLE_TAP_MS),
+    };
+  };
 
   const colors = useMemo(() => memberColors(me.id, members), [me.id, members]);
   const names = useMemo(() => new Map([...members.map((m) => [m.id, m.name] as const), [me.id, me.name]]), [members, me]);
@@ -144,8 +168,9 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
                   return (
                     <div
                       key={date}
-                      onClick={() => setDialog({ kind: "new", date })}
-                      className={`group min-h-24 cursor-pointer border-r border-zinc-100 p-1 last:border-r-0 hover:bg-blue-50/40 sm:min-h-28 ${
+                      onClick={() => tapDay(date, () => setDialog({ kind: "new", date }))}
+                      title="두 번 누르면 이 날 일정 전체 보기"
+                      className={`group min-h-24 cursor-pointer touch-manipulation select-none border-r border-zinc-100 p-1 last:border-r-0 hover:bg-blue-50/40 sm:min-h-28 ${
                         inMonth ? "" : "bg-zinc-50/70"
                       }`}
                     >
@@ -174,7 +199,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
                               event={e}
                               color={eventColor(e)}
                               ownerName={!e.shared && othersShown && e.ownerId !== me.id ? nameOf(e.ownerId) : null}
-                              onClick={() => setDialog({ kind: "event", event: e })}
+                              onClick={() => tapDay(date, () => setDialog({ kind: "event", event: e }))}
                             />
                           </li>
                         ))}
@@ -426,18 +451,27 @@ function DayDialog({
   onClose: () => void;
 }) {
   return (
-    <Modal title={`${+date.slice(5, 7)}월 ${+date.slice(8)}일 일정`} onClose={onClose}>
-      <ul className="space-y-1">
+    <Modal
+      title={`${+date.slice(5, 7)}월 ${+date.slice(8)}일 (${WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()]}) 일정 ${events.length}개`}
+      onClose={onClose}
+    >
+      {events.length === 0 && <p className="py-6 text-center text-sm text-zinc-500">등록된 일정이 없습니다.</p>}
+      <ul className="space-y-1.5">
         {events.map((e) => (
           <li key={e.id}>
             <button
               type="button"
               onClick={() => onSelect(e)}
-              className={`block w-full rounded border-l-[3px] px-2 py-1.5 text-left text-sm hover:brightness-95 ${colorOf(e).chip}`}
+              className={`block w-full rounded border-l-4 px-3 py-2 text-left hover:brightness-95 ${colorOf(e).chip}`}
             >
-              {e.shared && <SharedBadge className="mr-1.5" />}
-              <span className="font-semibold">{e.ownerId === meId ? "나" : nameOf(e.ownerId)}</span> · {e.title}
-              <span className="ml-1 text-xs opacity-70">{formatEventPeriod(e)}</span>
+              <span className="flex flex-wrap items-center gap-x-1.5 text-xs opacity-80">
+                {e.shared && <SharedBadge />}
+                <span className="font-semibold">{e.ownerId === meId ? "나" : nameOf(e.ownerId)}</span>
+                <span className="tabular-nums">{formatEventPeriod(e)}</span>
+              </span>
+              {/* 제목은 자르지 않고 전부 보여준다 */}
+              <span className="mt-0.5 block break-all text-sm font-medium">{e.title}</span>
+              {e.memo && <span className="mt-0.5 line-clamp-2 block break-all text-xs opacity-70">{e.memo}</span>}
             </button>
           </li>
         ))}
