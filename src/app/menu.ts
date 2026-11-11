@@ -15,6 +15,11 @@ export const MENU = [
     description: "글 쓰기·조회, 파일 첨부",
   },
   {
+    href: "/calendar",
+    label: "팀 캘린더",
+    description: "월별 일정 등록, 팀원 일정 함께 보기",
+  },
+  {
     href: "/knowledge",
     label: "지식자산",
     description: "공정별거래처·타공정거래처·공정표 조회 및 수정",
