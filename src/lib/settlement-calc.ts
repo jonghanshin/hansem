@@ -49,12 +49,18 @@ export function netProfit(line: SettlementLine) {
   return withoutVat(line.계약금) - Object.values(netOutflowParts(line)).reduce((a, b) => a + b, 0);
 }
 
-/** 정산금액: 정산대상금액을 구간별 근로자 비율(30·35·40%)로 누진 계산 */
-export function workerShare(amount: number) {
+/** 구간별 근로자 비율(%): 500만원 이하, 500만원 초과 1,000만원 이하, 1,000만원 초과 (권한 테이블의 500이하·1000이하·1000초과) */
+export type WorkerRates = { upTo5m: number; upTo10m: number; over10m: number };
+
+/** 권한에 비율이 없을 때 쓰는 기본 비율 */
+export const DEFAULT_WORKER_RATES: WorkerRates = { upTo5m: 30, upTo10m: 35, over10m: 40 };
+
+/** 정산금액: 정산대상금액을 구간별 근로자 비율로 누진 계산 */
+export function workerShare(amount: number, rates: WorkerRates = DEFAULT_WORKER_RATES) {
   const tier1 = Math.min(amount, 5_000_000);
   const tier2 = Math.max(Math.min(amount, 10_000_000) - 5_000_000, 0);
   const tier3 = Math.max(amount - 10_000_000, 0);
-  return Math.round((tier1 * 30 + tier2 * 35 + tier3 * 40) / 100);
+  return Math.round((tier1 * rates.upTo5m + tier2 * rates.upTo10m + tier3 * rates.over10m) / 100);
 }
 
 export type SettlementSummaryValues = {
@@ -68,13 +74,17 @@ export type SettlementSummaryValues = {
   carryOver: number;
 };
 
-export function summarizeSettlement(lines: SettlementLine[], carryIn = 0): SettlementSummaryValues {
+export function summarizeSettlement(
+  lines: SettlementLine[],
+  carryIn = 0,
+  rates: WorkerRates = DEFAULT_WORKER_RATES,
+): SettlementSummaryValues {
   const profit = lines.reduce((acc, l) => acc + (netProfit(l) ?? 0), 0);
   const target = profit - DEDUCTION - carryIn;
   return {
     profit,
     target,
-    settlement: target >= 0 ? workerShare(target) : 0,
+    settlement: target >= 0 ? workerShare(target, rates) : 0,
     carryOver: target < 0 ? -target : 0,
   };
 }

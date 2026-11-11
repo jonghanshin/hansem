@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import {
   computeSettlementAction,
   saveSettlementAction,
+  type AppliedRates,
   type CarryIn,
   type SavedSettlement,
   type SettlementWithCarryIn,
@@ -18,7 +19,9 @@ import {
   outflowParts,
   outflowRows,
   rowsSum,
+  DEFAULT_WORKER_RATES,
   summarizeSettlement,
+  workerShare,
   type OutflowGroup,
 } from "@/lib/settlement-calc";
 import { formatMoney, withoutVat, withVat } from "@/lib/sites";
@@ -69,8 +72,21 @@ function Money({ value }: { value: number | null }) {
 }
 
 /** 이익금액 합계에서 공제금을 뺀 정산대상금액과, 그 결과인 이월금액 또는 정산금액. 정산정보 테이블에 저장한다 */
-function SettlementSummary({ lines, ids, carryIn }: { lines: SettlementLine[]; ids: number[]; carryIn: CarryIn | null }) {
-  const { profit, target, settlement, carryOver } = summarizeSettlement(lines, carryIn?.금액 ?? 0);
+function SettlementSummary({
+  lines,
+  ids,
+  carryIn,
+  rates,
+}: {
+  lines: SettlementLine[];
+  ids: number[];
+  carryIn: CarryIn | null;
+  rates: AppliedRates | null;
+}) {
+  const appliedRates = rates ?? DEFAULT_WORKER_RATES;
+  const { profit, target, settlement, carryOver } = summarizeSettlement(lines, carryIn?.금액 ?? 0, appliedRates);
+  const pct = (n: number) => `${n}%`;
+  const ratio = (worker: number) => `사업주 ${pct(100 - worker)} : 근로자 ${pct(worker)}`;
   const [saved, setSaved] = useState<SavedSettlement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -151,13 +167,25 @@ function SettlementSummary({ lines, ids, carryIn }: { lines: SettlementLine[]; i
         <p>이익금액 = 계약금(부가세제외) - 총출금액 합계</p>
         <p>정산대상금액 = 이익금액 합계 - 공제금({formatMoney(DEDUCTION)}원) - 전달 누적이월금</p>
         <p>정산대상금액이 -이면 그 금액만큼 이월금액(= 이번 달 누적이월금), +이면 아래 공식으로 계산한 정산금액(근로자 몫)을 표시하고 누적이월금은 0이 됩니다.</p>
-        <p className="mt-1 font-semibold text-zinc-700">정산대상금액 기준 정산 공식</p>
+        <p className="mt-1 font-semibold text-zinc-700">
+          정산대상금액 기준 정산 공식{" "}
+          <span className="font-normal text-zinc-500">
+            {rates
+              ? rates.usedDefault
+                ? "(권한에 비율이 없는 구간은 기본 비율 적용)"
+                : "(영업사원 개인 비율, 권한 테이블 기준)"
+              : "(영업사원을 하나 골라야 개인 비율이 적용됩니다. 아래는 기본 비율)"}
+          </span>
+        </p>
         <ol className="mt-0.5 list-decimal pl-4">
-          <li>월 이익 500만원 이하 구간: 사업주 70% : 근로자 30%</li>
-          <li>월 이익 500만원 초과 1,000만원 이하 구간: 사업주 65% : 근로자 35%</li>
-          <li>월 이익 1,000만원 초과 구간: 사업주 60% : 근로자 40%</li>
+          <li>월 이익 500만원 이하 구간: {ratio(appliedRates.upTo5m)}</li>
+          <li>월 이익 500만원 초과 1,000만원 이하 구간: {ratio(appliedRates.upTo10m)}</li>
+          <li>월 이익 1,000만원 초과 구간: {ratio(appliedRates.over10m)}</li>
         </ol>
-        <p className="mt-1">위 구간별 비율은 누진 적용한다. (예시: 월 이익 800만원인 경우 → 500만원×70:30 + 300만원×65:35 로 각각 계산 후 합산)</p>
+        <p className="mt-1">
+          위 구간별 비율은 누진 적용한다. (예시: 월 이익 800만원인 경우 → 500만원×{pct(appliedRates.upTo5m)} + 300만원×
+          {pct(appliedRates.upTo10m)} = 근로자 {formatMoney(workerShare(8_000_000, appliedRates))}원)
+        </p>
       </div>
     </div>
   );
@@ -456,7 +484,7 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
             정산결과 <span className="ml-1 text-sm font-normal text-zinc-500">{result.lines.length}개 현장</span>
           </h2>
           <SettlementTable lines={result.lines} netOfVat onDetail={openNetDetail} />
-          <SettlementSummary lines={result.lines} ids={result.lines.map((l) => l.id)} carryIn={result.carryIn} />
+          <SettlementSummary lines={result.lines} ids={result.lines.map((l) => l.id)} carryIn={result.carryIn} rates={result.rates} />
         </section>
       )}
 

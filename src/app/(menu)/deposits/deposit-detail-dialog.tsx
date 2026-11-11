@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef } from "react";
 
 import type { RequestKind } from "@/lib/approvals";
+import { ReceiptLink } from "@/app/receipt-link";
 import type { Deposit } from "@/lib/deposits";
 import { formatMoney } from "@/lib/sites";
 
@@ -41,6 +42,7 @@ export function DepositDetailDialog({
     ["입금처", d.입금처],
     ["현금영수증", d.현금영수증],
     ["부가세 포함", d.부가세포함],
+    ["영수증 파일", <ReceiptLink key="receipt" value={d.영수증} />],
     ["비고", d.비고],
     ["A/S", d["A/S"]],
     ["공정", d.공정],

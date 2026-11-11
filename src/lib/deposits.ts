@@ -1,6 +1,7 @@
 // 입금내역 테이블. 모든 컬럼이 text로 저장되어 있어(금액 "1,480,000", 날짜 "2026년 10월 29일")
 // 화면용으로 숫자/날짜를 함께 파싱해 둔다.
 
+import { parseReceipt } from "@/lib/receipt-files-shared";
 import { formatMoney, toIsoDate, toMoney } from "@/lib/sites";
 
 export type DepositRow = {
@@ -18,6 +19,8 @@ export type DepositRow = {
   현금영수증: string | null;
   /** 입금구분이 '한샘 외 시공비'일 때만: 포함 / 미포함 */
   부가세포함: string | null;
+  /** 한샘 외 시공비 영수증 파일 정보 (JSON, receipt-files-shared의 ReceiptInfo) */
+  영수증: string | null;
   비고: string | null;
   /** A/S 내용 (자유 입력) */
   "A/S": string | null;
@@ -72,6 +75,7 @@ export const DEPOSIT_COLUMNS = [
   "날짜",
   "현금영수증",
   "부가세포함",
+  "영수증",
   "비고",
   "A/S",
   ...VENDOR_INFO_COLUMNS,
@@ -132,6 +136,7 @@ export function depositToInput(d: Deposit): DepositInput {
     현금영수증,
     현금영수증사유: note.reason,
     부가세포함: (VAT_OPTIONS as readonly (string | null)[]).includes(d.부가세포함) ? d.부가세포함! : VAT_DEFAULT,
+    영수증: d.영수증 ?? "",
     "A/S": note.note,
     ...Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, d[c] ?? ""])) as VendorInfo,
   };
@@ -316,6 +321,8 @@ export type DepositInput = {
   현금영수증사유: string;
   /** 구분이 '한샘 외 시공비'일 때 필수: 포함 / 미포함 */
   부가세포함: string;
+  /** 구분이 '한샘 외 시공비'일 때 영수증 파일 정보 (선택, 업로드 후 받은 JSON) */
+  영수증: string;
   /** A/S 내용 (자유 입력, 선택) */
   "A/S": string;
 } & VendorInfo; // 거래처 정보 (선택)
@@ -381,6 +388,10 @@ export function normalizeDepositInput(
   if (withVatChoice && !(VAT_OPTIONS as readonly (string | null)[]).includes(부가세포함)) {
     errors.push(`부가세 포함은 ${VAT_OPTIONS.join(", ")} 중에서 선택하세요`);
   }
+  // 영수증 파일도 한샘 외 시공비일 때만 저장한다 (업로드 정보 형식만 허용)
+  const receiptText = withVatChoice ? text(raw.영수증) : null;
+  const receipt = receiptText ? parseReceipt(receiptText) : null;
+  if (receiptText && !receipt) errors.push("영수증 파일 정보가 올바르지 않습니다. 다시 올려 주세요");
 
   const note = text(raw["A/S"]);
   if (note && note.length > AS_MAX_LENGTH) errors.push(`비고는 ${AS_MAX_LENGTH}자 이내로 입력하세요`);
@@ -434,6 +445,7 @@ export function normalizeDepositInput(
       날짜: dateIso ? `${toKoreanDate(dateIso)}${timeSuffix}` : null,
       현금영수증, // 비어 있으면 수정 시 서버에서 기존 값 유지
       부가세포함,
+      영수증: receipt ? JSON.stringify(receipt) : null,
       비고: null,
       "A/S": as,
       ...vendor,

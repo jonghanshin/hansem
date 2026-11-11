@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useState, useTransition } from "react";
 
 import { DepositFormDialog } from "@/app/(menu)/deposits/deposit-form-dialog";
+import { ReceiptLink } from "@/app/receipt-link";
 import {
   addRequestCommentAction,
   approveRequestAction,
@@ -45,6 +46,7 @@ const FIELDS: (typeof DEPOSIT_COLUMNS)[number][] = [
   "계약가",
   "현금영수증",
   "부가세포함",
+  "영수증",
   "비고",
   "A/S",
   // 거래처·계좌 정보: 출금일 때만 보인다 (업체계좌·대체계좌 중 저장된 쪽만 값이 있어 그쪽만 보인다)
@@ -60,11 +62,15 @@ const FIELDS: (typeof DEPOSIT_COLUMNS)[number][] = [
 /** 컬럼명과 다르게 보여줄 이름 */
 const FIELD_LABELS: Partial<Record<(typeof DEPOSIT_COLUMNS)[number], string>> = {
   현금영수증: "영수증",
+  영수증: "영수증 파일",
   업체은행: "업체계좌 은행",
   업체예금주: "업체계좌 예금주",
   업체계좌번호: "업체계좌 번호",
 };
 const fieldLabel = (f: (typeof DEPOSIT_COLUMNS)[number]) => FIELD_LABELS[f] ?? f;
+/** 화면에 보여줄 값: 영수증 파일은 내려받기 링크 */
+const fieldValue = (d: DepositRow, f: (typeof DEPOSIT_COLUMNS)[number]) =>
+  f === "영수증" ? <ReceiptLink value={d.영수증} /> : d[f];
 /**
  * 이 요청에서 보여줄 칸: 거래처 정보(업체·계좌)는 출금일 때만 (입금 등록 화면과 같은 기준, vendorInfoAllowed)
  */
@@ -726,7 +732,7 @@ function FieldList({ d, strike }: { d: DepositRow; strike: boolean }) {
               strike ? "text-zinc-500 line-through" : "text-zinc-900"
             }`}
           >
-            {d[f]}
+            {fieldValue(d, f)}
           </dd>
         </div>
       ))}
@@ -752,11 +758,11 @@ function ChangeList({ r }: { r: PendingRequest }) {
             <dt className={`w-28 shrink-0 ${ACCOUNT_FIELDS.has(f) ? "font-medium text-blue-700" : "text-zinc-500"}`}>{fieldLabel(f)}</dt>
             <dd className="min-w-0 break-words">
               <span className="text-zinc-500 line-through">
-                {before[f] || "(없음)"}
+                {before[f] ? fieldValue(before, f) : "(없음)"}
               </span>
               <span className="mx-1.5 text-zinc-400">→</span>
               <span className="font-semibold text-zinc-900">
-                {r[f] || "(없음)"}
+                {r[f] ? fieldValue(r, f) : "(없음)"}
               </span>
             </dd>
           </div>

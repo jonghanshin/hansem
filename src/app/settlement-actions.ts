@@ -6,7 +6,7 @@ import { authorizeAction } from "@/lib/auth";
 import { computeSettlement, MAX_SETTLEMENT_SITES, type SettlementResult } from "@/lib/settlement";
 import { xlsxToCells } from "@/lib/excel-cells";
 import { cellsToRows, CSV_MAX_BYTES, csvToRows, decodeCsv, isUploadTable, UPLOAD_TABLES, type UploadTable } from "@/lib/settlement-upload";
-import { summarizeSettlement } from "@/lib/settlement-calc";
+import { DEFAULT_WORKER_RATES, summarizeSettlement, type WorkerRates } from "@/lib/settlement-calc";
 import { formatMoney, toMoney, type ActionResult } from "@/lib/sites";
 import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 import { RESTRICTED_ROLE } from "@/lib/data-scope";
@@ -113,27 +113,63 @@ function monthNumber(value: string | null | undefined): number | null {
   return n >= 1 && n <= 12 ? n : null;
 }
 
+/** 정산에 쓰는 영업사원의 권한 정보 */
+type SettlementAccount = {
+  영업사원ID: string | null;
+  이름: string | null;
+  역할: string | null;
+  정산시작월: string | null;
+  초기화여부: string | null;
+  "500이하": string | null;
+  "1000이하": string | null;
+  "1000초과": string | null;
+};
+
+/** 정산 대상 영업사원의 권한 행: 영업사원ID가 같은 계정, 없으면 이름이 같은 RD */
+async function findSettlementAccount(영업사원ID: string | null, 영업사원: string): Promise<SettlementAccount | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(AUTH_TABLE)
+    .select('영업사원ID, 이름, 역할, 정산시작월, 초기화여부, "500이하", "1000이하", "1000초과"');
+  if (error) throw new Error(`권한 조회 실패: ${error.message}`);
+  const accounts = data as unknown as SettlementAccount[];
+  return (
+    (영업사원ID && accounts.find((a) => a.영업사원ID?.trim() === 영업사원ID)) ||
+    accounts.find((a) => a.이름?.trim() === 영업사원 && a.역할?.trim() === RESTRICTED_ROLE) ||
+    null
+  );
+}
+
+/** 정산에 쓰는 구간별 근로자 비율. 권한에 없거나 숫자가 아닌 구간은 기본 비율을 쓴다 */
+export type AppliedRates = WorkerRates & {
+  /** 기본 비율을 쓴 구간이 있으면 true */
+  usedDefault: boolean;
+};
+
+function ratesOf(account: SettlementAccount | null): AppliedRates {
+  let usedDefault = false;
+  const read = (value: string | null | undefined, fallback: number) => {
+    const n = Number(String(value ?? "").replace(/[%\s]/g, ""));
+    if (String(value ?? "").trim() !== "" && Number.isFinite(n) && n >= 0 && n <= 100) return n;
+    usedDefault = true;
+    return fallback;
+  };
+  const rates = {
+    upTo5m: read(account?.["500이하"], DEFAULT_WORKER_RATES.upTo5m),
+    upTo10m: read(account?.["1000이하"], DEFAULT_WORKER_RATES.upTo10m),
+    over10m: read(account?.["1000초과"], DEFAULT_WORKER_RATES.over10m),
+  };
+  return { ...rates, usedDefault };
+}
+
 /**
  * 권한.정산시작월 기준으로 3개월째 되는 달(시작월 포함 3개월 간격)인지.
  * 예: 시작월 1월 → 1월, 4월, 7월, 10월. 이 달에는 이전 누적이월금을 이어받지 않는다.
  * 권한.초기화여부가 Y인 사용자만 리셋한다 (그 외는 계속 누적).
  */
-async function isCarryOverResetMonth(영업사원ID: string | null, 영업사원: string, 정산월: string): Promise<boolean> {
+function isCarryOverResetMonth(account: SettlementAccount | null, 정산월: string): boolean {
   const month = monthNumber(정산월);
-  if (month === null) return false;
-  const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("영업사원ID, 이름, 역할, 정산시작월, 초기화여부");
-  if (error) throw new Error(`권한 조회 실패: ${error.message}`);
-  const accounts = data as unknown as {
-    영업사원ID: string | null;
-    이름: string | null;
-    역할: string | null;
-    정산시작월: string | null;
-    초기화여부: string | null;
-  }[];
-  const account =
-    (영업사원ID && accounts.find((a) => a.영업사원ID?.trim() === 영업사원ID)) ||
-    accounts.find((a) => a.이름?.trim() === 영업사원 && a.역할?.trim() === RESTRICTED_ROLE);
-  if (account?.초기화여부?.trim().toUpperCase() !== "Y") return false;
+  if (month === null || !account) return false;
+  if (account.초기화여부?.trim().toUpperCase() !== "Y") return false;
   const start = monthNumber(account.정산시작월);
   return start !== null && (((month - start) % 3) + 3) % 3 === 0;
 }
@@ -180,8 +216,8 @@ export type CarryIn = {
   리셋: boolean;
 };
 
-async function fetchCarryIn(target: SettlementTarget): Promise<CarryIn> {
-  if (await isCarryOverResetMonth(target.영업사원ID, target.영업사원, target.정산월)) {
+async function fetchCarryIn(target: SettlementTarget, account: SettlementAccount | null): Promise<CarryIn> {
+  if (isCarryOverResetMonth(account, target.정산월)) {
     return { 금액: 0, 이전정산월: null, 리셋: true };
   }
   const 이전정산월 = previousYearMonth(target.저장월);
@@ -225,8 +261,9 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
     const target = await singleTarget(lines);
     if (typeof target === "string") return { ok: false, error: target };
     const { 영업사원, 저장월: 정산월, 영업사원ID } = target;
-    const carryIn = await fetchCarryIn(target);
-    const { profit, settlement, carryOver } = summarizeSettlement(lines, carryIn.금액);
+    const account = await findSettlementAccount(영업사원ID, 영업사원);
+    const carryIn = await fetchCarryIn(target, account);
+    const { profit, settlement, carryOver } = summarizeSettlement(lines, carryIn.금액, ratesOf(account));
     const record = {
       영업사원,
       영업사원ID,
@@ -272,8 +309,8 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
   }
 }
 
-/** 정산 계산 결과 + 전달 누적이월금 (영업사원·정산월이 하나씩일 때만, 아니면 null) */
-export type SettlementWithCarryIn = SettlementResult & { carryIn: CarryIn | null };
+/** 정산 계산 결과 + 전달 누적이월금·개인 비율 (영업사원·정산월이 하나씩일 때만, 아니면 null) */
+export type SettlementWithCarryIn = SettlementResult & { carryIn: CarryIn | null; rates: AppliedRates | null };
 
 /** 관리자 이상 전용: 선택한 미정산 현장의 정산 내역 계산 (읽기 전용) */
 export async function computeSettlementAction(ids: number[]): Promise<ActionResult<SettlementWithCarryIn>> {
@@ -285,7 +322,9 @@ export async function computeSettlementAction(ids: number[]): Promise<ActionResu
   try {
     const result = await computeSettlement(ids, auth.scope);
     const target = await singleTarget(result.lines);
-    return { ok: true, data: { ...result, carryIn: typeof target === "string" ? null : await fetchCarryIn(target) } };
+    if (typeof target === "string") return { ok: true, data: { ...result, carryIn: null, rates: null } };
+    const account = await findSettlementAccount(target.영업사원ID, target.영업사원);
+    return { ok: true, data: { ...result, carryIn: await fetchCarryIn(target, account), rates: ratesOf(account) } };
   } catch (e) {
     return { ok: false, error: messageOf(e) };
   }

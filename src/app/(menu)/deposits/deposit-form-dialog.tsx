@@ -3,6 +3,9 @@
 import { useId, useState, useTransition } from "react";
 
 import { createDepositAction, resubmitRequestAction, updateDepositAction } from "@/app/actions";
+import { uploadReceiptAction } from "@/app/receipt-actions";
+import { formatFileSize, isBlockedFile } from "@/lib/board-shared";
+import { parseReceipt, RECEIPT_MAX_BYTES } from "@/lib/receipt-files-shared";
 import type { RequestKind } from "@/lib/approvals";
 import {
   AS_MAX_LENGTH,
@@ -79,6 +82,7 @@ export function DepositFormDialog({
           현금영수증: "",
           현금영수증사유: "",
           부가세포함: VAT_DEFAULT,
+          영수증: "",
           "A/S": "",
           ...EMPTY_VENDOR_INFO,
         },
@@ -414,6 +418,9 @@ export function DepositFormDialog({
                   </select>
                 </label>
               )}
+              {vatChoiceRequired(values.구분) && (
+                <ReceiptUpload value={values.영수증} onChange={(v) => set("영수증", v)} disabled={pending} />
+              )}
               {showReceipt && (
               <label className="col-span-2">
                 <Label required={!isEdit}>영수증</Label>
@@ -554,5 +561,65 @@ function Label({ children, required }: { children: React.ReactNode; required?: b
       {children}
       {required && <span className="ml-0.5 text-red-600">*</span>}
     </span>
+  );
+}
+
+/** 한샘 외 시공비 영수증: 고르면 바로 서버에 올리고, 받은 파일 정보를 입력값에 넣는다 (승인 요청 때 함께 저장) */
+function ReceiptUpload({ value, onChange, disabled }: { value: string; onChange: (value: string) => void; disabled: boolean }) {
+  const info = parseReceipt(value);
+  const [error, setError] = useState<string | null>(null);
+  const [uploading, startUpload] = useTransition();
+
+  function pick(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    if (isBlockedFile(file.name)) return setError("실행 파일 형식은 올릴 수 없습니다");
+    if (file.size > RECEIPT_MAX_BYTES) return setError(`파일은 ${formatFileSize(RECEIPT_MAX_BYTES)}까지 올릴 수 있습니다`);
+    const formData = new FormData();
+    formData.set("file", file);
+    startUpload(async () => {
+      const res = await uploadReceiptAction(formData);
+      if (res.ok) onChange(res.data);
+      else setError(res.error);
+    });
+  }
+
+  return (
+    <div className="col-span-2">
+      <Label>영수증 업로드</Label>
+      <div className="flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-sm">
+        <span className="min-w-0 flex-1 truncate text-zinc-800" title={info?.name}>
+          {uploading ? "올리는 중…" : info ? `${info.name} (${formatFileSize(info.size)})` : <span className="text-zinc-400">파일 없음</span>}
+        </span>
+        <label
+          className={`shrink-0 cursor-pointer rounded border border-zinc-300 px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 ${
+            disabled || uploading ? "pointer-events-none opacity-60" : ""
+          }`}
+        >
+          {info ? "변경" : "파일 선택"}
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            className="sr-only"
+            disabled={disabled || uploading}
+            onChange={(e) => {
+              pick(e.target.files?.[0]);
+              e.target.value = ""; // 같은 파일을 다시 선택해도 동작하도록
+            }}
+          />
+        </label>
+        {info && !uploading && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            disabled={disabled}
+            className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
+          >
+            지우기
+          </button>
+        )}
+      </div>
+      {error && <span className="mt-1 block text-xs text-red-600">{error}</span>}
+    </div>
   );
 }
