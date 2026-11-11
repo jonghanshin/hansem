@@ -8,7 +8,16 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { BOARD_PAGE_SIZE, type BoardAttachment, type BoardPost, type BoardPostSummary } from "@/lib/board-shared";
+import { imageNamesIn } from "@/lib/board-html";
+import {
+  BOARD_IMAGE_NAME_RE,
+  BOARD_IMAGE_PATH,
+  BOARD_IMAGE_TYPES,
+  BOARD_PAGE_SIZE,
+  type BoardAttachment,
+  type BoardPost,
+  type BoardPostSummary,
+} from "@/lib/board-shared";
 import { BOARD_FILES_TABLE, BOARD_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export const UPLOAD_DIR = path.join(process.cwd(), "upload");
@@ -20,6 +29,7 @@ type PostRecord = {
   작성자: number | null;
   작성자이름: string | null;
   공지: boolean;
+  서식: boolean | null;
   조회수: number;
   작성일시: string;
   수정일시: string | null;
@@ -41,7 +51,7 @@ const FILE_COLUMNS = "id, 게시글id, 원본파일명, 저장파일명, 크기,
 /** 테이블이 아직 없을 때 안내 문구 */
 function tableError(label: string, message: string): Error {
   if (/schema cache|does not exist/i.test(message)) {
-    return new Error(`${label} 실패: 게시판 테이블이 없습니다. doc/게시판.sql을 Supabase SQL Editor에서 실행해 주세요.`);
+    return new Error(`${label} 실패: 게시판 테이블(또는 컬럼)이 없습니다. doc/게시판.sql을 Supabase SQL Editor에서 실행해 주세요.`);
   }
   return new Error(`${label} 실패: ${message}`);
 }
@@ -121,6 +131,7 @@ export async function fetchPost(id: number): Promise<BoardPost | null> {
     id: r.id,
     title: r.제목,
     content: r.내용,
+    html: r.서식 === true,
     authorId: r.작성자,
     authorName: r.작성자이름,
     notice: r.공지,
@@ -143,13 +154,17 @@ export async function insertPost(row: {
   작성자: number;
   작성자이름: string;
   공지: boolean;
+  서식: boolean;
 }): Promise<number> {
   const { data, error } = await getSupabaseAdmin().from(BOARD_TABLE).insert(row).select("id").single();
   if (error) throw tableError("게시글 등록", error.message);
   return (data as { id: number }).id;
 }
 
-export async function updatePost(id: number, row: { 제목: string; 내용: string; 공지: boolean }): Promise<void> {
+export async function updatePost(
+  id: number,
+  row: { 제목: string; 내용: string; 공지: boolean; 서식: boolean },
+): Promise<void> {
   const { error } = await getSupabaseAdmin()
     .from(BOARD_TABLE)
     .update({ ...row, 수정일시: new Date().toISOString() })
@@ -157,14 +172,52 @@ export async function updatePost(id: number, row: { 제목: string; 내용: stri
   if (error) throw tableError("게시글 수정", error.message);
 }
 
-/** 글 삭제: 첨부 행은 FK cascade로 함께 지워지고, 디스크의 파일도 지운다 */
+/** 글 삭제: 첨부 행은 FK cascade로 함께 지워지고, 디스크의 첨부파일·본문 이미지도 지운다 */
 export async function deletePost(id: number): Promise<void> {
   const sb = getSupabaseAdmin();
-  const { data: files, error: fileError } = await sb.from(BOARD_FILES_TABLE).select(FILE_COLUMNS).eq("게시글id", id);
+  const [{ data: files, error: fileError }, { data: post }] = await Promise.all([
+    sb.from(BOARD_FILES_TABLE).select(FILE_COLUMNS).eq("게시글id", id),
+    sb.from(BOARD_TABLE).select("내용").eq("id", id).maybeSingle(),
+  ]);
   if (fileError) throw tableError("첨부파일 조회", fileError.message);
   const { error } = await sb.from(BOARD_TABLE).delete().eq("id", id);
   if (error) throw tableError("게시글 삭제", error.message);
   await removeStoredFiles((files ?? []) as unknown as FileRecord[]);
+  await deleteBoardImages(imageNamesIn((post as { 내용?: string } | null)?.내용 ?? ""));
+}
+
+// ---------- 본문 이미지 ----------
+// 편집기에서 넣은 이미지는 upload/board-images 에 저장하고 /board/images/[파일명] 으로 보여준다.
+// 글 수정으로 본문에서 빠진 이미지, 글 삭제 시 본문의 이미지는 디스크에서 지운다.
+
+const IMAGE_DIR = path.join(UPLOAD_DIR, "board-images");
+
+function imagePath(name: string): string {
+  if (!BOARD_IMAGE_NAME_RE.test(name)) throw new Error("잘못된 이미지 이름입니다");
+  return path.join(IMAGE_DIR, name);
+}
+
+/** 이미지를 저장하고 본문에 넣을 주소를 돌려준다 */
+export async function saveBoardImage(file: File): Promise<string> {
+  const ext = BOARD_IMAGE_TYPES[file.type];
+  if (!ext) throw new Error("PNG, JPG, GIF, WEBP 이미지만 넣을 수 있습니다");
+  const name = `${Date.now()}-${randomUUID()}${ext}`;
+  await mkdir(IMAGE_DIR, { recursive: true });
+  await writeFile(imagePath(name), Buffer.from(await file.arrayBuffer()));
+  return `${BOARD_IMAGE_PATH}${name}`;
+}
+
+export async function readBoardImage(name: string): Promise<Buffer | null> {
+  if (!BOARD_IMAGE_NAME_RE.test(name)) return null;
+  return readFile(imagePath(name)).catch(() => null);
+}
+
+export async function deleteBoardImages(names: string[]): Promise<void> {
+  await Promise.all(
+    names
+      .filter((n) => BOARD_IMAGE_NAME_RE.test(n))
+      .map((n) => rm(imagePath(n), { force: true }).catch((e) => console.error("[board] 이미지 삭제 실패:", n, e))),
+  );
 }
 
 // ---------- 첨부파일 ----------

@@ -14,6 +14,10 @@ create table if not exists public."게시판" (
   "수정일시"   timestamptz
 );
 
+-- 서식 있는 글(HTML) 여부. false인 예전 글은 일반 텍스트로 표시한다
+-- (이미 게시판 테이블을 만든 경우에도 이 줄만 실행하면 컬럼이 추가됨)
+alter table public."게시판" add column if not exists "서식" boolean not null default false;
+
 create index if not exists "게시판_공지_id_idx" on public."게시판" ("공지", id desc);
 
 -- 첨부파일 정보 (실제 파일은 서버의 upload 폴더에 '저장파일명'으로 저장)

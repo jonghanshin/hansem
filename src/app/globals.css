@@ -18,3 +18,82 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/* 게시판 서식 있는 글: 상세 화면과 편집기(.ProseMirror)가 같은 모양으로 보이도록 */
+@layer components {
+  .board-content {
+    @apply text-sm leading-relaxed break-words text-zinc-900;
+  }
+  .board-content > * + * {
+    @apply mt-2;
+  }
+  /* 빈 줄(엔터만 친 줄)도 한 줄 높이를 차지하게 */
+  .board-content p:empty {
+    min-height: 1lh;
+  }
+  .board-content h2 {
+    @apply mt-5 text-xl font-bold;
+  }
+  .board-content h3 {
+    @apply mt-4 text-base font-bold;
+  }
+  .board-content ul {
+    @apply list-disc pl-6;
+  }
+  .board-content ol {
+    @apply list-decimal pl-6;
+  }
+  .board-content li > p {
+    @apply my-0.5;
+  }
+  .board-content blockquote {
+    @apply border-l-4 border-zinc-300 pl-3 text-zinc-600;
+  }
+  .board-content a {
+    @apply text-blue-700 underline;
+  }
+  .board-content hr {
+    @apply my-4 border-zinc-300;
+  }
+  .board-content mark {
+    @apply rounded-sm px-0.5;
+  }
+  .board-content code {
+    @apply rounded bg-zinc-100 px-1 font-mono text-[0.9em];
+  }
+  .board-content pre {
+    @apply overflow-x-auto rounded-md bg-zinc-900 p-3 text-zinc-100;
+  }
+  .board-content pre code {
+    @apply bg-transparent p-0;
+  }
+  .board-content img {
+    @apply h-auto max-w-full rounded;
+  }
+  .board-content table {
+    @apply my-3 w-full table-fixed border-collapse;
+  }
+  .board-content th,
+  .board-content td {
+    @apply border border-zinc-300 px-2 py-1 align-top;
+  }
+  .board-content th {
+    @apply bg-zinc-100 text-left font-semibold;
+  }
+  .board-content td > p,
+  .board-content th > p {
+    @apply m-0;
+  }
+  /* 편집기 전용 */
+  .board-content.ProseMirror img.ProseMirror-selectednode {
+    @apply outline-2 outline-blue-500;
+  }
+  .board-content .selectedCell {
+    @apply bg-blue-100;
+  }
+}
+
+/* 표가 넓으면 가로로 스크롤 */
+.board-content .tableWrapper {
+  @apply overflow-x-auto;
+}

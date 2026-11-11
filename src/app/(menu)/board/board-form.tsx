@@ -6,15 +6,17 @@ import { useId, useRef, useState, useTransition } from "react";
 
 import { createPostAction, updatePostAction } from "@/app/board-actions";
 import {
-  BOARD_CONTENT_MAX,
   BOARD_FILE_MAX_BYTES,
   BOARD_FILES_PER_POST,
   BOARD_TITLE_MAX,
   BOARD_UPLOAD_TOTAL_MAX_BYTES,
   formatFileSize,
+  textToHtml,
   validateUploadFiles,
   type BoardPost,
 } from "@/lib/board-shared";
+
+import { RichEditor } from "./rich-editor";
 
 /** 글쓰기(post가 null) / 수정 화면 */
 export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNotice: boolean }) {
@@ -22,7 +24,11 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
   const router = useRouter();
   const isEdit = post !== null;
   const [title, setTitle] = useState(post?.title ?? "");
-  const [content, setContent] = useState(post?.content ?? "");
+  // 예전 텍스트 글은 편집기용 HTML 문단으로 바꿔서 연다 (저장하면 서식 있는 글이 된다)
+  const [initialHtml] = useState(() => (post ? (post.html ? post.content : textToHtml(post.content)) : ""));
+  const [content, setContent] = useState(initialHtml);
+  const [contentEmpty, setContentEmpty] = useState(!post);
+  const [contentTouched, setContentTouched] = useState(false);
   const [notice, setNotice] = useState(post?.notice ?? false);
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [removeIds, setRemoveIds] = useState<number[]>([]);
@@ -33,7 +39,7 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
   const keptCount = (post?.files.length ?? 0) - removeIds.length;
   const dirty =
     title !== (post?.title ?? "") ||
-    content !== (post?.content ?? "") ||
+    contentTouched ||
     notice !== (post?.notice ?? false) ||
     newFiles.length > 0 ||
     removeIds.length > 0;
@@ -54,7 +60,7 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return setError("제목을 입력하세요");
-    if (!content.trim()) return setError("내용을 입력하세요");
+    if (contentEmpty && !content.includes("<img")) return setError("내용을 입력하세요");
     const errors = validateUploadFiles(newFiles, keptCount);
     if (errors.length) return setError(errors.join("\n"));
     setError(null);
@@ -112,20 +118,19 @@ export function BoardForm({ post, canNotice }: { post: BoardPost | null; canNoti
           </label>
         )}
 
-        <label className="block">
+        <div>
           <Label required>내용</Label>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            maxLength={BOARD_CONTENT_MAX}
-            required
-            rows={14}
-            className={`${INPUT} min-h-60 resize-y leading-relaxed`}
+          <RichEditor
+            initialHtml={initialHtml}
+            onChange={(html, empty) => {
+              setContent(html);
+              setContentEmpty(empty);
+              setContentTouched(true);
+            }}
+            onError={setError}
           />
-          <span className="mt-1 block text-right text-xs text-zinc-400 tabular-nums">
-            {content.length.toLocaleString()} / {BOARD_CONTENT_MAX.toLocaleString()}
-          </span>
-        </label>
+          <p className="mt-1 text-xs text-zinc-400">이미지는 🖼 버튼, 붙여넣기(Ctrl+V), 끌어다 놓기로 넣을 수 있습니다.</p>
+        </div>
 
         <div>
           <Label>첨부파일</Label>

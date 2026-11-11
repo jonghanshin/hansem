@@ -3,14 +3,33 @@
 import { refresh } from "next/cache";
 
 import { authorizeAction } from "@/lib/auth";
-import { deleteAttachments, deletePost, fetchPost, insertPost, saveAttachments, updatePost } from "@/lib/board";
-import { BOARD_CONTENT_MAX, BOARD_TITLE_MAX, validateUploadFiles } from "@/lib/board-shared";
+import {
+  deleteAttachments,
+  deleteBoardImages,
+  deletePost,
+  fetchPost,
+  insertPost,
+  saveAttachments,
+  saveBoardImage,
+  updatePost,
+} from "@/lib/board";
+import { htmlToPlainText, imageNamesIn, sanitizeBoardHtml } from "@/lib/board-html";
+import {
+  BOARD_HTML_MAX,
+  BOARD_IMAGE_MAX_BYTES,
+  BOARD_IMAGE_TYPES,
+  BOARD_TITLE_MAX,
+  formatFileSize,
+  validateUploadFiles,
+} from "@/lib/board-shared";
 import type { ActionResult } from "@/lib/sites";
 
 // 게시판 글쓰기·수정·삭제. 로그인한 사람은 누구나 글을 쓸 수 있고,
 // 수정·삭제는 작성자 본인 또는 관리자(CEO·관리자)만, 공지 지정은 관리자만 할 수 있다.
 
 function fail(e: unknown): { ok: false; error: string } {
+  // 화면에는 메시지만 보이므로, 원인을 찾을 수 있게 서버 로그에 전체 오류를 남긴다
+  console.error("[board] 처리 실패:", e);
   return { ok: false, error: e instanceof Error ? e.message : String(e) };
 }
 
@@ -18,11 +37,13 @@ type ParsedForm = { title: string; content: string; notice: boolean; files: File
 
 function parseForm(form: FormData): ParsedForm | string {
   const title = String(form.get("title") ?? "").trim();
-  const content = String(form.get("content") ?? "").replace(/\r\n/g, "\n").trimEnd();
+  // 내용은 편집기가 만든 HTML. 허용한 태그·스타일만 남긴다
+  const raw = String(form.get("content") ?? "");
   if (!title) return "제목을 입력하세요";
   if (title.length > BOARD_TITLE_MAX) return `제목은 ${BOARD_TITLE_MAX}자 이내로 입력하세요`;
-  if (!content.trim()) return "내용을 입력하세요";
-  if (content.length > BOARD_CONTENT_MAX) return `내용은 ${BOARD_CONTENT_MAX.toLocaleString()}자 이내로 입력하세요`;
+  if (raw.length > BOARD_HTML_MAX) return "내용이 너무 깁니다. 일부를 나누어 올려 주세요";
+  const content = sanitizeBoardHtml(raw);
+  if (!htmlToPlainText(content) && imageNamesIn(content).length === 0) return "내용을 입력하세요";
   const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   const removeIds = form
     .getAll("removeFileIds")
@@ -45,6 +66,7 @@ export async function createPostAction(form: FormData): Promise<ActionResult<{ i
       작성자: auth.uid,
       작성자이름: auth.name,
       공지: auth.canApprove && parsed.notice,
+      서식: true,
     });
     try {
       await saveAttachments(id, parsed.files);
@@ -78,11 +100,32 @@ export async function updatePostAction(id: number, form: FormData): Promise<Acti
       내용: parsed.content,
       // 관리자가 아니면 공지 여부는 바꿀 수 없다
       공지: auth.canApprove ? parsed.notice : post.notice,
+      서식: true,
     });
+    // 수정하면서 본문에서 뺀 이미지는 디스크에서도 지운다
+    const kept = new Set(imageNamesIn(parsed.content));
+    await deleteBoardImages(imageNamesIn(post.content).filter((n) => !kept.has(n)));
     await deleteAttachments(id, parsed.removeIds);
     await saveAttachments(id, parsed.files);
     refresh();
     return { ok: true, data: { id } };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** 편집기에서 본문 이미지 올리기. 저장한 이미지 주소를 돌려준다 */
+export async function uploadBoardImageAction(form: FormData): Promise<ActionResult<{ url: string }>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  const file = form.get("image");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "이미지를 선택하세요" };
+  if (!BOARD_IMAGE_TYPES[file.type]) return { ok: false, error: "PNG, JPG, GIF, WEBP 이미지만 넣을 수 있습니다" };
+  if (file.size > BOARD_IMAGE_MAX_BYTES) {
+    return { ok: false, error: `이미지는 ${formatFileSize(BOARD_IMAGE_MAX_BYTES)}까지 넣을 수 있습니다` };
+  }
+  try {
+    return { ok: true, data: { url: await saveBoardImage(file) } };
   } catch (e) {
     return fail(e);
   }

@@ -3,6 +3,31 @@
 export const BOARD_PAGE_SIZE = 15;
 export const BOARD_TITLE_MAX = 200;
 export const BOARD_CONTENT_MAX = 20000;
+/** 서식 있는 글(HTML)의 최대 길이. 태그·스타일이 포함되므로 텍스트보다 넉넉하게 */
+export const BOARD_HTML_MAX = 300_000;
+/** 본문에 넣는 이미지 하나 최대 크기 */
+export const BOARD_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+/** 본문 이미지 주소 앞부분 (로그인 확인 후 내려주는 경로) */
+export const BOARD_IMAGE_PATH = "/board/images/";
+/** 본문 이미지로 받는 형식 (SVG는 스크립트를 담을 수 있어 제외) */
+export const BOARD_IMAGE_TYPES: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+};
+/** 본문 이미지 저장 파일명 형식: 시각-uuid.확장자 */
+export const BOARD_IMAGE_NAME_RE = /^\d+-[0-9a-f-]{36}\.(png|jpg|gif|webp)$/;
+
+/** 예전 텍스트 글을 편집기에 넣을 수 있도록 HTML 문단으로 바꾼다 */
+export function textToHtml(text: string): string {
+  const escape = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return text
+    .split(/\n{2,}/)
+    .map((para) => `<p>${escape(para).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
 /** 파일 하나 최대 크기 */
 export const BOARD_FILE_MAX_BYTES = 10 * 1024 * 1024;
 /** 한 번에 올리는 파일 합계 최대 크기 (next.config의 bodySizeLimit보다 작아야 함) */
@@ -34,6 +59,8 @@ export type BoardPost = {
   id: number;
   title: string;
   content: string;
+  /** true면 content가 서식 있는 HTML, false면 예전 방식의 일반 텍스트 */
+  html: boolean;
   authorId: number | null;
   authorName: string | null;
   notice: boolean;
