@@ -18,6 +18,12 @@ create table if not exists public."게시판" (
 -- (이미 게시판 테이블을 만든 경우에도 이 줄만 실행하면 컬럼이 추가됨)
 alter table public."게시판" add column if not exists "서식" boolean not null default false;
 
+-- 카테고리 (견적·계약·교육). null이면 카테고리 없는 일반 글로 '전체'에서만 보인다
+alter table public."게시판" add column if not exists "카테고리" text;
+alter table public."게시판" drop constraint if exists "게시판_카테고리_확인";
+alter table public."게시판" add constraint "게시판_카테고리_확인" check ("카테고리" in ('견적', '계약', '교육'));
+create index if not exists "게시판_카테고리_id_idx" on public."게시판" ("카테고리", id desc);
+
 create index if not exists "게시판_공지_id_idx" on public."게시판" ("공지", id desc);
 
 -- 첨부파일 정보 (실제 파일은 서버의 upload 폴더에 '저장파일명'으로 저장)
