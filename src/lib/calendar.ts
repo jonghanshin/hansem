@@ -54,23 +54,32 @@ function toEvent(r: EventRecord): CalendarEvent {
   };
 }
 
-/** 캘린더에서 고를 수 있는 팀원 (권한 테이블 전체, 이름순) */
-export async function fetchCalendarMembers(): Promise<CalendarMember[]> {
+/** 캘린더에서 고를 수 있는 팀원 (권한 테이블, 이름순). excludedIds(열외 계정)는 뺀다 */
+export async function fetchCalendarMembers(excludedIds: readonly number[] = []): Promise<CalendarMember[]> {
   const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("id, 영업사원ID, 이름");
   if (error) throw new Error(`팀원 목록 조회 실패: ${error.message}`);
   return ((data ?? []) as unknown as { id: number; 영업사원ID: string; 이름: string | null }[])
+    .filter((r) => !excludedIds.includes(r.id))
     .map((r) => ({ id: r.id, name: r.이름?.trim() || r.영업사원ID }))
     .sort((a, b) => a.name.localeCompare(b.name, "ko") || a.id - b.id);
 }
 
-/** [from, to] 기간과 겹치는 일정: 지정한 사람들의 일정 + 모든 공용 일정 */
-export async function fetchEvents(ownerIds: number[], from: string, to: string): Promise<CalendarEvent[]> {
+/** [from, to] 기간과 겹치는 일정: 지정한 사람들의 일정 + 모든 공용 일정. excludedIds(열외 계정)의 일정은 뺀다 */
+export async function fetchEvents(
+  ownerIds: number[],
+  from: string,
+  to: string,
+  excludedIds: readonly number[] = [],
+): Promise<CalendarEvent[]> {
   const ids = ownerIds.filter((id) => Number.isSafeInteger(id));
   const owners = ids.length ? `사용자.in.(${ids.join(",")}),` : "";
-  const { data, error } = await getSupabaseAdmin()
+  let query = getSupabaseAdmin()
     .from(CALENDAR_TABLE)
     .select(COLUMNS)
-    .or(`${owners}구분.eq.${EVENT_KIND_SHARED}`)
+    .or(`${owners}구분.eq.${EVENT_KIND_SHARED}`);
+  const hidden = excludedIds.filter((id) => Number.isSafeInteger(id));
+  if (hidden.length) query = query.not("사용자", "in", `(${hidden.join(",")})`);
+  const { data, error } = await query
     .lte("시작일", to)
     .gte("종료일", from)
     .order("시작일")

@@ -11,6 +11,8 @@ export const PENDING_DEPOSITS_TABLE = "승인필요입금내역";
 export const BOARD_TABLE = "게시판";
 export const BOARD_FILES_TABLE = "게시판첨부";
 export const CALENDAR_TABLE = "일정";
+export const CONSULT_TABLE = "상담";
+export const CONSULT_RECORDS_TABLE = "상담기록";
 
 export class MissingSupabaseConfigError extends Error {
   constructor() {

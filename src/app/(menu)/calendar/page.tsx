@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { requireUser } from "@/lib/auth";
 import { fetchCalendarMembers, fetchEvents } from "@/lib/calendar";
+import { exclusionFor } from "@/lib/excluded-users";
 import { MAX_SELECTED_MEMBERS, monthRange, parseYearMonth, todayInKorea } from "@/lib/calendar-shared";
 
 import { CalendarView } from "./calendar-view";
@@ -58,7 +59,9 @@ async function CalendarContent({ searchParams }: { searchParams: SearchParams })
 }
 
 async function loadCalendar(uid: number, ym: string, usersParam: string) {
-  const members = await fetchCalendarMembers();
+  // 열외 계정은 팀원 목록·일정에서 뺀다 (본인이 열외면 모두 보인다)
+  const excludedIds = (await exclusionFor(uid)).ids;
+  const members = await fetchCalendarMembers(excludedIds);
   const memberIds = new Set(members.map((m) => m.id));
   // ?users=3,5 → 함께 볼 다른 팀원 (본인·없는 사람 제외)
   const selectedIds = [
@@ -71,6 +74,6 @@ async function loadCalendar(uid: number, ym: string, usersParam: string) {
   ].slice(0, MAX_SELECTED_MEMBERS);
 
   const { from, to } = monthRange(ym);
-  const events = await fetchEvents([uid, ...selectedIds], from, to);
+  const events = await fetchEvents([uid, ...selectedIds], from, to, excludedIds);
   return { members, selectedIds, events };
 }

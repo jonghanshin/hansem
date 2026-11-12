@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 import { countPendingRequests, countRejectedRequests } from "@/lib/approvals";
-import { getSession } from "@/lib/auth";
-import { canApprove, RESTRICTED_ROLE, scopeFor } from "@/lib/data-scope";
+import { getSession, resolveScope } from "@/lib/auth";
+import { canApprove, RESTRICTED_ROLE } from "@/lib/data-scope";
 
 /**
  * 승인 대기 알림. 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
@@ -14,7 +14,7 @@ export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "ba
   if (!session) return null;
 
   if (canApprove(session)) {
-    const count = await countPendingRequests(scopeFor(session)).catch(() => 0);
+    const count = await countPendingRequests((await resolveScope(session))).catch(() => 0);
     if (count === 0) return null;
     return variant === "nav" ? (
       <NavLink href="/approvals" highlight count={count}>
@@ -27,7 +27,7 @@ export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "ba
 
   if (session.role.trim() === RESTRICTED_ROLE) {
     const [count, rejected] = await Promise.all([
-      countPendingRequests(scopeFor(session), session.uid).catch(() => 0),
+      countPendingRequests((await resolveScope(session)), session.uid).catch(() => 0),
       countRejectedRequests(session.uid).catch(() => 0),
     ]);
     // 메뉴의 '내 요청'은 항상 보여 주고, 첫 화면 배너는 대기·반려 건이 있을 때만

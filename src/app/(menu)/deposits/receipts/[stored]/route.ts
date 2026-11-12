@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
-import { getSession } from "@/lib/auth";
-import { applyScope, applySiteVisibility, canApprove, scopeFor } from "@/lib/data-scope";
+import { getSession, resolveScope } from "@/lib/auth";
+import { applyScope, applySiteVisibility, canApprove } from "@/lib/data-scope";
 import { readReceipt } from "@/lib/receipt-files";
 import { isReceiptStoredName, parseReceipt } from "@/lib/receipt-files-shared";
 import { DEPOSITS_TABLE, getSupabaseAdmin, PENDING_DEPOSITS_TABLE } from "@/lib/supabase-admin";
@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ stored: st
   const { stored } = await ctx.params;
   if (!isReceiptStoredName(stored)) return new Response("잘못된 요청입니다", { status: 400 });
 
-  const scope = scopeFor(session);
+  const scope = (await resolveScope(session));
   const sb = getSupabaseAdmin();
   const pattern = `%${stored}%`; // 저장 이름은 임의 문자열이라 다른 값과 겹치지 않는다
 

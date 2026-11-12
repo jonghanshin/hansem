@@ -5,7 +5,8 @@ import { promisify } from "node:util";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { canApprove, scopeFor, type DataScope } from "@/lib/data-scope";
+import { canApprove, canUseConsult, scopeFor, type DataScope } from "@/lib/data-scope";
+import { exclusionFor, type Exclusion } from "@/lib/excluded-users";
 import type { Salesperson } from "@/lib/sites";
 import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 import {
@@ -95,19 +96,45 @@ export async function requireUser(): Promise<SessionPayload> {
   return session;
 }
 
+/** 로그인한 사용자의 데이터 범위 (열외 계정의 데이터는 열외가 아닌 사용자에게 보이지 않는다) */
+export async function resolveScope(session: SessionPayload): Promise<DataScope> {
+  return scopeFor(session, (await exclusionFor(session.uid)).names);
+}
+
 /** 화면(서버 컴포넌트)용: 로그인 확인 후 볼 수 있는 데이터 범위를 돌려준다 */
 export async function requireScope(): Promise<DataScope> {
-  return scopeFor(await requireUser());
+  return resolveScope(await requireUser());
 }
 
 /** Server Action용: 통과하지 못하면 오류 메시지, 통과하면 데이터 범위를 돌려준다 */
 export async function authorizeAction(): Promise<
-  { ok: false; error: string } | { ok: true; uid: number; sid: string; name: string; scope: DataScope; canApprove: boolean }
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      uid: number;
+      sid: string;
+      name: string;
+      scope: DataScope;
+      /** 이 사용자에게 숨길 열외 계정 */
+      exclusion: Exclusion;
+      canApprove: boolean;
+      canUseConsult: boolean;
+    }
 > {
   const session = await getSession();
   if (!session) return { ok: false, error: "로그인이 필요합니다. 다시 로그인해 주세요." };
   if (session.mustChangePassword) return { ok: false, error: "비밀번호를 먼저 변경해 주세요." };
-  return { ok: true, uid: session.uid, sid: session.sid, name: session.name, scope: scopeFor(session), canApprove: canApprove(session) };
+  const exclusion = await exclusionFor(session.uid);
+  return {
+    ok: true,
+    uid: session.uid,
+    sid: session.sid,
+    name: session.name,
+    scope: scopeFor(session, exclusion.names),
+    exclusion,
+    canApprove: canApprove(session),
+    canUseConsult: canUseConsult(session),
+  };
 }
 
 export type MyProfile = { 영업사원ID: string; 이름: string | null; 역할: string | null; 접속시간: string | null };

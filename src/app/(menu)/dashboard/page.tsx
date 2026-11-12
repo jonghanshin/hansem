@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
-import { requireUser } from "@/lib/auth";
+import { requireUser, resolveScope } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/data-scope";
 import type { Deposit } from "@/lib/deposits";
 import { MONEY_GROUP_NOTE, MONEY_GROUPS, summarizeSiteMoney, type MoneyGroupSummary } from "@/lib/site-money";
@@ -24,13 +24,14 @@ export default function DashboardPage() {
   );
 }
 
-const ALL = { salesName: null, hidePrivateSites: false }; // 슈퍼관리자 전용 화면: 전체 데이터
 
 async function DashboardLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다
   const session = await requireUser();
   if (!isSuperAdmin(session)) redirect("/"); // 슈퍼관리자만 볼 수 있다 (주소를 직접 입력해도 막음)
-  const result = await Promise.all([fetchSites(ALL), fetchAllDeposits(ALL)]).then(
+  // 슈퍼관리자 전용 화면: 전체 데이터 (열외 계정 데이터는 열외가 아닌 사용자에게 빼고)
+  const all = { ...(await resolveScope(session)), salesName: null, hidePrivateSites: false };
+  const result = await Promise.all([fetchSites(all), fetchAllDeposits(all)]).then(
     ([sites, deposits]) => ({ ok: true as const, sites, deposits }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );

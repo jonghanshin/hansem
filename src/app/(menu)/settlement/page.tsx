@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
-import { requireUser } from "@/lib/auth";
-import { canApprove, scopeFor } from "@/lib/data-scope";
+import { requireUser, resolveScope } from "@/lib/auth";
+import { canApprove } from "@/lib/data-scope";
 import { fetchSettlementCandidates } from "@/lib/settlement";
 
 import { SettlementView } from "./settlement-view";
@@ -24,7 +24,7 @@ async function SettlementLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다
   const session = await requireUser();
   if (!canApprove(session)) redirect("/"); // 관리자 이상만 (주소를 직접 입력해도 막음)
-  const result = await fetchSettlementCandidates(scopeFor(session)).then(
+  const result = await fetchSettlementCandidates((await resolveScope(session))).then(
     (rows) => ({ ok: true as const, rows }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );

@@ -2,8 +2,8 @@ import { Suspense } from "react";
 
 import { ApprovalsTable } from "@/app/(menu)/approvals/approvals-table";
 import { fetchPendingRequests, STATUS_PENDING, STATUS_REJECTED } from "@/lib/approvals";
-import { requireUser } from "@/lib/auth";
-import { canApprove, scopeFor } from "@/lib/data-scope";
+import { requireUser, resolveScope } from "@/lib/auth";
+import { canApprove } from "@/lib/data-scope";
 import { fetchSiteSummaries } from "@/lib/sites-data";
 
 export const metadata = { title: "내 승인 요청 | 현장정보 관리" };
@@ -21,7 +21,7 @@ export default function MyRequestsPage() {
 
 async function MyRequestsLoader() {
   const session = await requireUser();
-  const scope = scopeFor(session);
+  const scope = (await resolveScope(session));
   // 로그인한 사람이 요청한 건만 (권한.id = 승인필요입금내역.요청자)
   const result = await Promise.all([
     fetchPendingRequests(scope, session.uid, [STATUS_PENDING, STATUS_REJECTED]),

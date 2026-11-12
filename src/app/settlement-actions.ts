@@ -355,7 +355,9 @@ export async function listSettlementInfoAction(): Promise<ActionResult<Settlemen
       .order("id", { ascending: false })
       .limit(5000);
     if (error) return { ok: false, error: `정산정보 조회 실패: ${error.message}` };
-    return { ok: true, data: data as unknown as SettlementInfoRow[] };
+    // 열외 계정의 정산결과는 열외가 아닌 사용자에게 보이지 않는다
+    const rows = (data as unknown as SettlementInfoRow[]).filter((r) => !auth.exclusion.names.includes(r.영업사원?.trim() ?? ""));
+    return { ok: true, data: rows };
   } catch (e) {
     return { ok: false, error: messageOf(e) };
   }

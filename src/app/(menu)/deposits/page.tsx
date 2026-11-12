@@ -2,8 +2,8 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { fetchPendingTargets } from "@/lib/approvals";
-import { requireUser } from "@/lib/auth";
-import { canApprove, scopeFor } from "@/lib/data-scope";
+import { requireUser, resolveScope } from "@/lib/auth";
+import { canApprove } from "@/lib/data-scope";
 import { fetchAllDeposits, fetchSiteSummaries } from "@/lib/sites-data";
 
 import { DepositsTable } from "./deposits-table";
@@ -23,7 +23,7 @@ export default function DepositsPage() {
 async function DepositsLoader() {
   await connection(); // 항상 요청 시점의 최신 데이터를 읽는다
   const session = await requireUser(); // 로그인 확인
-  const scope = scopeFor(session); // RD는 본인 데이터만
+  const scope = (await resolveScope(session)); // RD는 본인 데이터만
   const result = await Promise.all([fetchAllDeposits(scope), fetchSiteSummaries(scope), fetchPendingTargets()]).then(
     ([deposits, sites, pendingTargets]) => ({ ok: true as const, deposits, sites, pendingTargets }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),

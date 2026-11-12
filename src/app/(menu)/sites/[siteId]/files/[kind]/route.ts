@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
-import { getSession } from "@/lib/auth";
-import { applyScope, scopeFor } from "@/lib/data-scope";
+import { getSession, resolveScope } from "@/lib/auth";
+import { applyScope } from "@/lib/data-scope";
 import { readSiteFile } from "@/lib/site-files";
 import { isSiteFileKind, parseSiteFile, siteFileColumn } from "@/lib/site-files-shared";
 import { getSupabaseAdmin, SITES_TABLE } from "@/lib/supabase-admin";
@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ siteId: st
   const column = siteFileColumn(kind);
   const { data, error } = await applyScope(
     getSupabaseAdmin().from(SITES_TABLE).select(column).eq("id", siteId),
-    scopeFor(session),
+    (await resolveScope(session)),
   ).maybeSingle();
   if (error) {
     console.error("[site-files] 현장정보 조회 실패:", error.message);

@@ -1,5 +1,10 @@
 export const MENU = [
   {
+    href: "/consult",
+    label: "고객상담",
+    description: "상담노트 작성, 연락·미팅·실측 일정과 후속 할 일 관리",
+  },
+  {
     href: "/sites",
     label: "현장정보",
     description: "현장 목록 조회, 신규 입력, 엑셀 업로드, 상세 수정",

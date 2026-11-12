@@ -3,9 +3,9 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { countPendingRequests, countRejectedRequests } from "@/lib/approvals";
-import { fetchMyProfile, MIN_PASSWORD_LENGTH, requireUser } from "@/lib/auth";
+import { fetchMyProfile, MIN_PASSWORD_LENGTH, requireUser, resolveScope } from "@/lib/auth";
 import { formatBoardDate } from "@/lib/board-shared";
-import { canApprove, scopeFor } from "@/lib/data-scope";
+import { canApprove } from "@/lib/data-scope";
 import { formatMoney, type Site } from "@/lib/sites";
 import { fetchAllDeposits, fetchSites } from "@/lib/sites-data";
 
@@ -27,7 +27,7 @@ async function MyInfo() {
   await connection();
   const session = await requireUser();
   // '내가 진행한 현장' = 현장정보·입금내역의 영업사원이 내 이름인 행 (역할과 상관없이 본인 것만)
-  const mine = { ...scopeFor(session), salesName: session.name };
+  const mine = { ...(await resolveScope(session)), salesName: session.name };
   const result = await Promise.all([
     fetchMyProfile(session.uid),
     fetchSites(mine),
