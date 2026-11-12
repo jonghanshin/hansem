@@ -23,9 +23,14 @@ const NONE: Exclusion = { ids: [], names: [] };
 const fetchExcludedAccounts = cache(async (): Promise<Exclusion> => {
   const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("id, 이름, 영업사원ID, 비고");
   if (error) {
-    // 비고 컬럼이 없거나 조회에 실패하면 아무도 빼지 않는다 (화면은 계속 동작)
-    console.error("[excluded-users] 권한 조회 실패:", error.message);
-    return NONE;
+    // 비고 컬럼이 없을 때(42703)만 아무도 빼지 않고 계속한다
+    if (error.code === "42703") {
+      console.error("[excluded-users] 권한.비고 컬럼이 없습니다:", error.message);
+      return NONE;
+    }
+    // 그 밖의 실패는 그대로 던진다. 열외 계정의 데이터가 잘못 보이지 않게 하고(실패 시 숨김 해제 금지),
+    // 운영 서버의 미리 그리기(prerender)가 끝나 중단된 조회는 Next.js가 조용히 처리하게 둔다.
+    throw new Error(`권한 조회 실패: ${error.message}`);
   }
   const rows = (data ?? []) as unknown as { id: number; 이름: string | null; 영업사원ID: string; 비고: string | null }[];
   const nameOf = (r: (typeof rows)[number]) => r.이름?.trim() || r.영업사원ID;

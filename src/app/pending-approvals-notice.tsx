@@ -14,7 +14,7 @@ export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "ba
   if (!session) return null;
 
   if (canApprove(session)) {
-    const count = await countPendingRequests((await resolveScope(session))).catch(() => 0);
+    const count = await resolveScope(session).then((scope) => countPendingRequests(scope)).catch(() => 0);
     if (count === 0) return null;
     return variant === "nav" ? (
       <NavLink href="/approvals" highlight count={count}>
@@ -27,7 +27,7 @@ export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "ba
 
   if (session.role.trim() === RESTRICTED_ROLE) {
     const [count, rejected] = await Promise.all([
-      countPendingRequests((await resolveScope(session)), session.uid).catch(() => 0),
+      resolveScope(session).then((scope) => countPendingRequests(scope, session.uid)).catch(() => 0),
       countRejectedRequests(session.uid).catch(() => 0),
     ]);
     // 메뉴의 '내 요청'은 항상 보여 주고, 첫 화면 배너는 대기·반려 건이 있을 때만

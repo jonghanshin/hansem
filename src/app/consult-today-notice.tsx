@@ -17,7 +17,7 @@ async function loadAgenda(): Promise<{ c: Consult; a: AgendaItem }[] | null> {
   const session = await getSession();
   if (!session || session.mustChangePassword || !canUseConsult(session)) return null;
   const view = { ...(await exclusionFor(session.uid)), salesName: session.role.trim() === RESTRICTED_ROLE ? session.name : null };
-  const consults = await fetchConsults(view).catch(() => [] as Consult[]); // 테이블이 없을 때 등은 알림만 생략
+  const consults = await fetchConsults(view);
   const today = todayInKorea();
   return consults
     .flatMap((c) => consultAgenda(c, today).map((a) => ({ c, a })))
@@ -25,7 +25,8 @@ async function loadAgenda(): Promise<{ c: Consult; a: AgendaItem }[] | null> {
 }
 
 export async function ConsultTodayNotice({ variant }: { variant: "nav" | "banner" }) {
-  const items = await loadAgenda();
+  // 조회에 실패하면 알림만 생략한다 (메뉴 바·첫 화면은 그대로)
+  const items = await loadAgenda().catch(() => null);
   if (!items || items.length === 0) return null;
   const overdue = items.filter((x) => x.a.overdue).length;
 
