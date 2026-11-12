@@ -8,7 +8,8 @@ import type { AsCase, AsHistory, AsMember, AsPhoto, AsSiteHit } from "@/lib/as-s
 import type { DataScope } from "@/lib/data-scope";
 import type { Exclusion } from "@/lib/excluded-users";
 import { fetchSites } from "@/lib/sites-data";
-import { AS_HISTORY_TABLE, AS_TABLE, AUTH_TABLE, CONSULT_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAuthDirectory } from "@/lib/auth-directory";
+import { AS_HISTORY_TABLE, AS_TABLE, CONSULT_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 /** 저장할 수 있는 A/S 컬럼 (id·접수번호·사진·등록 정보 제외) */
 export type AsInput = Omit<AsCase, "id" | "접수번호" | "사진" | "등록자" | "등록일시" | "수정일시">;
@@ -48,9 +49,10 @@ function hidden(r: Record<string, unknown>, view: AsView): boolean {
 
 /** A/S 전체 (최근 접수 순) */
 export async function fetchAsCases(view: AsView): Promise<AsCase[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from(AS_TABLE)
-    .select("*")
+  let query = getSupabaseAdmin().from(AS_TABLE).select("*");
+  // RD는 본인 현장만 DB에서 바로 거른다 (열외 조건은 아래에서 한 번 더 확인)
+  if (view.salesName !== null) query = query.eq("영업사원", view.salesName);
+  const { data, error } = await query
     .order("접수일", { ascending: false })
     .order("id", { ascending: false })
     .limit(2000);
@@ -81,12 +83,10 @@ export async function fetchAsHistories(caseId: number, exclusion: Exclusion): Pr
 
 /** A/S 담당자로 고를 수 있는 사람 (관리자 역할 먼저, 이름순). 열외 계정은 뺀다 */
 export async function fetchAsMembers(exclusion: Exclusion): Promise<AsMember[]> {
-  const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("id, 영업사원ID, 이름, 역할");
-  if (error) throw new Error(`담당자 목록 조회 실패: ${error.message}`);
   const rank = (role: string) => (role === "관리자" ? 0 : role === "RD" ? 2 : 1);
-  return ((data ?? []) as unknown as { id: number; 영업사원ID: string; 이름: string | null; 역할: string | null }[])
+  return (await fetchAuthDirectory())
     .filter((r) => !exclusion.ids.includes(r.id))
-    .map((r) => ({ 이름: r.이름?.trim() || r.영업사원ID, 역할: r.역할?.trim() ?? "" }))
+    .map((r) => ({ 이름: r.이름, 역할: r.역할 }))
     .filter((m, i, all) => all.findIndex((x) => x.이름 === m.이름) === i)
     .sort((a, b) => rank(a.역할) - rank(b.역할) || a.이름.localeCompare(b.이름, "ko"));
 }

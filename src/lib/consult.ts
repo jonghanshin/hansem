@@ -6,7 +6,8 @@ import "server-only";
 
 import type { Consult, ConsultFile, ConsultMember, ConsultRecord, TodoItem, WorkItem } from "@/lib/consult-shared";
 import type { Exclusion } from "@/lib/excluded-users";
-import { AUTH_TABLE, CONSULT_RECORDS_TABLE, CONSULT_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAuthDirectory } from "@/lib/auth-directory";
+import { CONSULT_RECORDS_TABLE, CONSULT_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 /** 저장할 수 있는 상담 컬럼 (id·고객번호·등록 정보 제외) */
 export type ConsultInput = Omit<Consult, "id" | "고객번호" | "등록일시" | "수정일시" | "현장번호" | "첨부">;
@@ -59,14 +60,37 @@ function hiddenConsult(r: Record<string, unknown>, view: ConsultView): boolean {
 
 /** 상담 전체 (최근 상담일 순) */
 export async function fetchConsults(view: ConsultView): Promise<Consult[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from(CONSULT_TABLE)
-    .select("*")
+  let query = getSupabaseAdmin().from(CONSULT_TABLE).select("*");
+  // RD는 본인 담당만 DB에서 바로 거른다 (열외 조건은 아래에서 한 번 더 확인)
+  if (view.salesName !== null) query = query.eq("영업사원", view.salesName);
+  const { data, error } = await query
     .order("상담일", { ascending: false })
     .order("id", { ascending: false })
     .limit(1000);
   if (error) throw tableError("상담 목록 조회", error.message);
   return ((data ?? []) as Record<string, unknown>[]).filter((r) => !hiddenConsult(r, view)).map(toConsult);
+}
+
+/** 오늘 할 일 알림용: 진행 중인 상담의 일정·할 일 칼럼만 (메뉴 바에서 페이지마다 읽으므로 가볍게) */
+export type ConsultAgendaRow = Pick<
+  Consult,
+  "id" | "고객명" | "진행단계" | "다음연락일" | "다음미팅일시" | "미팅상태" | "실측일시" | "실측상태" | "할일"
+>;
+
+export async function fetchConsultAgendaRows(view: ConsultView): Promise<ConsultAgendaRow[]> {
+  let query = getSupabaseAdmin()
+    .from(CONSULT_TABLE)
+    .select("id, 고객명, 영업사원, 등록자, 진행단계, 다음연락일, 다음미팅일시, 미팅상태, 실측일시, 실측상태, 할일")
+    .not("진행단계", "in", '("보류","계약취소")');
+  if (view.salesName !== null) query = query.eq("영업사원", view.salesName);
+  const { data, error } = await query.limit(2000);
+  if (error) throw tableError("오늘 할 일 조회", error.message);
+  return ((data ?? []) as unknown as Record<string, unknown>[])
+    .filter((r) => !hiddenConsult(r, view))
+    .map((r) => {
+      const c = r as unknown as ConsultAgendaRow;
+      return { ...c, 다음미팅일시: minutes(c.다음미팅일시), 실측일시: minutes(c.실측일시), 할일: Array.isArray(r.할일) ? (r.할일 as TodoItem[]) : [] };
+    });
 }
 
 /** 상담 한 건 (없거나 볼 수 없는 상담이면 null) */
@@ -93,11 +117,9 @@ export async function fetchConsultRecords(consultId: number, exclusion: Exclusio
 
 /** 담당 RD로 고를 수 있는 사람 (권한 테이블, RD 먼저 이름순). 열외 계정은 뺀다 */
 export async function fetchConsultMembers(exclusion: Exclusion): Promise<ConsultMember[]> {
-  const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("id, 영업사원ID, 이름, 역할");
-  if (error) throw new Error(`담당자 목록 조회 실패: ${error.message}`);
-  return ((data ?? []) as unknown as { id: number; 영업사원ID: string; 이름: string | null; 역할: string | null }[])
+  return (await fetchAuthDirectory())
     .filter((r) => !exclusion.ids.includes(r.id))
-    .map((r) => ({ 영업사원ID: r.영업사원ID, 이름: r.이름?.trim() || r.영업사원ID, 역할: r.역할?.trim() ?? "" }))
+    .map((r) => ({ 영업사원ID: r.영업사원ID, 이름: r.이름, 역할: r.역할 }))
     .sort((a, b) => Number(b.역할 === "RD") - Number(a.역할 === "RD") || a.이름.localeCompare(b.이름, "ko"));
 }
 

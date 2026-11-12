@@ -9,7 +9,8 @@ import "server-only";
 
 import { EVENT_KIND_PERSONAL, EVENT_TITLE_MAX } from "@/lib/calendar-shared";
 import { isActiveStage, type Consult } from "@/lib/consult-shared";
-import { AUTH_TABLE, CALENDAR_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAuthDirectory } from "@/lib/auth-directory";
+import { CALENDAR_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type EventRow = {
   사용자: number;
@@ -30,10 +31,8 @@ const clip = (s: string) => (s.length > EVENT_TITLE_MAX ? `${s.slice(0, EVENT_TI
 export async function syncConsultEvents(c: Consult): Promise<string | null> {
   try {
     const sb = getSupabaseAdmin();
-    const { data: people, error: peopleError } = await sb.from(AUTH_TABLE).select("id, 영업사원ID, 이름");
-    if (peopleError) throw new Error(peopleError.message);
-    const rows = (people ?? []) as unknown as { id: number; 영업사원ID: string; 이름: string | null }[];
-    const byName = (name: string) => rows.find((p) => (p.이름?.trim() || p.영업사원ID) === name.trim())?.id ?? null;
+    const rows = await fetchAuthDirectory();
+    const byName = (name: string) => rows.find((p) => p.이름 === name.trim())?.id ?? null;
     const rd =
       rows.find((p) => c.영업사원ID && p.영업사원ID === c.영업사원ID)?.id ?? (c.영업사원 ? byName(c.영업사원) : null);
 

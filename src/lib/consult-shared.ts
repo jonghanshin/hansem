@@ -155,7 +155,10 @@ export type AgendaItem = { kind: AgendaKind; label: string; when: string; overdu
  * 오늘 챙길 일: 다음 연락일이 오늘·지남, 오늘 미팅·실측, 예정일이 오늘·지난 할 일.
  * 보류·계약취소 상담은 뺀다.
  */
-export function consultAgenda(c: Consult, today: string): AgendaItem[] {
+export function consultAgenda(
+  c: Pick<Consult, "진행단계" | "다음연락일" | "다음미팅일시" | "미팅상태" | "실측일시" | "실측상태" | "할일">,
+  today: string,
+): AgendaItem[] {
   if (c.진행단계 === "보류" || c.진행단계 === "계약취소") return [];
   const items: AgendaItem[] = [];
   if (isActiveStage(c.진행단계) && c.다음연락일 && c.다음연락일 <= today) {

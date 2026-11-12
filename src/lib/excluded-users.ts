@@ -2,11 +2,13 @@ import "server-only";
 
 import { cache } from "react";
 
-import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAuthDirectory } from "@/lib/auth-directory";
 
 // 열외 사용자: 권한.비고가 '열외'인 계정 (실제 RD가 아닌 계정 — 관리·테스트용).
 // 열외가 아닌 사용자가 로그인하면 모든 화면에서 열외 사용자와 그 데이터를 보여주지 않는다.
 // (열외 사용자 본인이 로그인하면 전부 보인다)
+// 권한 목록은 auth-directory에서 1분 동안 캐시한다. 조회에 실패하면 그대로 던진다
+// (실패했다고 숨김을 풀면 열외 계정의 데이터가 보이게 되므로).
 
 export const EXCLUDED_MARK = "열외";
 
@@ -19,26 +21,14 @@ export type Exclusion = {
 
 const NONE: Exclusion = { ids: [], names: [] };
 
-/** 열외 계정 목록 (요청마다 한 번만 읽는다) */
+/** 열외 계정 목록 (요청마다 한 번만 계산한다) */
 const fetchExcludedAccounts = cache(async (): Promise<Exclusion> => {
-  const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("id, 이름, 영업사원ID, 비고");
-  if (error) {
-    // 비고 컬럼이 없을 때(42703)만 아무도 빼지 않고 계속한다
-    if (error.code === "42703") {
-      console.error("[excluded-users] 권한.비고 컬럼이 없습니다:", error.message);
-      return NONE;
-    }
-    // 그 밖의 실패는 그대로 던진다. 열외 계정의 데이터가 잘못 보이지 않게 하고(실패 시 숨김 해제 금지),
-    // 운영 서버의 미리 그리기(prerender)가 끝나 중단된 조회는 Next.js가 조용히 처리하게 둔다.
-    throw new Error(`권한 조회 실패: ${error.message}`);
-  }
-  const rows = (data ?? []) as unknown as { id: number; 이름: string | null; 영업사원ID: string; 비고: string | null }[];
-  const nameOf = (r: (typeof rows)[number]) => r.이름?.trim() || r.영업사원ID;
-  const excluded = rows.filter((r) => r.비고?.trim() === EXCLUDED_MARK);
-  const regularNames = new Set(rows.filter((r) => r.비고?.trim() !== EXCLUDED_MARK).map(nameOf));
+  const rows = await fetchAuthDirectory();
+  const excluded = rows.filter((r) => r.비고 === EXCLUDED_MARK);
+  const regularNames = new Set(rows.filter((r) => r.비고 !== EXCLUDED_MARK).map((r) => r.이름));
   return {
     ids: excluded.map((r) => r.id),
-    names: [...new Set(excluded.map(nameOf))].filter((n) => !regularNames.has(n)),
+    names: [...new Set(excluded.map((r) => r.이름))].filter((n) => !regularNames.has(n)),
   };
 });
 

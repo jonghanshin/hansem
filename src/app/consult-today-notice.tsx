@@ -2,8 +2,8 @@ import Link from "next/link";
 
 import { getSession } from "@/lib/auth";
 import { todayInKorea } from "@/lib/calendar-shared";
-import { fetchConsults } from "@/lib/consult";
-import { consultAgenda, formatDateTime, type AgendaItem, type Consult } from "@/lib/consult-shared";
+import { fetchConsultAgendaRows, type ConsultAgendaRow } from "@/lib/consult";
+import { consultAgenda, formatDateTime, type AgendaItem } from "@/lib/consult-shared";
 import { canUseConsult, RESTRICTED_ROLE } from "@/lib/data-scope";
 import { exclusionFor } from "@/lib/excluded-users";
 
@@ -13,11 +13,11 @@ import { exclusionFor } from "@/lib/excluded-users";
 const ICON: Record<AgendaItem["kind"], string> = { 연락: "📞", 미팅: "🤝", 실측: "📐", 할일: "✅" };
 const BANNER_MAX = 6;
 
-async function loadAgenda(): Promise<{ c: Consult; a: AgendaItem }[] | null> {
+async function loadAgenda(): Promise<{ c: ConsultAgendaRow; a: AgendaItem }[] | null> {
   const session = await getSession();
   if (!session || session.mustChangePassword || !canUseConsult(session)) return null;
   const view = { ...(await exclusionFor(session.uid)), salesName: session.role.trim() === RESTRICTED_ROLE ? session.name : null };
-  const consults = await fetchConsults(view);
+  const consults = await fetchConsultAgendaRows(view);
   const today = todayInKorea();
   return consults
     .flatMap((c) => consultAgenda(c, today).map((a) => ({ c, a })))

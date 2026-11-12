@@ -3,7 +3,8 @@ import "server-only";
 // 팀 캘린더: 일정은 Supabase '일정' 테이블, 팀원 목록은 '권한' 테이블에서 읽는다.
 
 import { EVENT_KIND_SHARED, type CalendarEvent, type CalendarMember } from "@/lib/calendar-shared";
-import { AUTH_TABLE, CALENDAR_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAuthDirectory } from "@/lib/auth-directory";
+import { CALENDAR_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type EventRecord = {
   id: number;
@@ -58,11 +59,9 @@ function toEvent(r: EventRecord): CalendarEvent {
 
 /** 캘린더에서 고를 수 있는 팀원 (권한 테이블, 이름순). excludedIds(열외 계정)는 뺀다 */
 export async function fetchCalendarMembers(excludedIds: readonly number[] = []): Promise<CalendarMember[]> {
-  const { data, error } = await getSupabaseAdmin().from(AUTH_TABLE).select("id, 영업사원ID, 이름");
-  if (error) throw new Error(`팀원 목록 조회 실패: ${error.message}`);
-  return ((data ?? []) as unknown as { id: number; 영업사원ID: string; 이름: string | null }[])
+  return (await fetchAuthDirectory())
     .filter((r) => !excludedIds.includes(r.id))
-    .map((r) => ({ id: r.id, name: r.이름?.trim() || r.영업사원ID }))
+    .map((r) => ({ id: r.id, name: r.이름 }))
     .sort((a, b) => a.name.localeCompare(b.name, "ko") || a.id - b.id);
 }
 

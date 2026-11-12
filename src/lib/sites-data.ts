@@ -41,15 +41,10 @@ export async function fetchDeposits(siteNumber: string, scope: DataScope): Promi
 
 /** 전체 입금내역 (최신 날짜 먼저, 날짜 해석 불가 행은 맨 뒤) */
 export async function fetchAllDeposits(scope: DataScope): Promise<Deposit[]> {
-  // 입금내역에는 고유 id가 없어, 나눠 읽는 동안 순서가 흔들리지 않도록 여러 컬럼으로 정렬한다.
+  // 나눠 읽는 동안 순서가 흔들리지 않도록 고유 id로 정렬한다 (화면 순서는 아래에서 날짜·시간으로 다시 정렬)
   const rows = await fetchAllRows<DepositRecord>("입금내역", (from, to) =>
     applyScope(getSupabaseAdmin().from(DEPOSITS_TABLE).select("*"), scope)
-      .order("날짜")
-      .order("현장번호")
-      .order("입출금")
-      .order("입금액")
-      .order("입금내용")
-      .order("입금자")
+      .order("id")
       .range(from, to),
   );
   return sortDepositsDesc(rows.map(toDeposit));
