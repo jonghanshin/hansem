@@ -61,11 +61,6 @@ function monthOptionsOf(sites: SettlementCandidate[]) {
   return options(sites.map((s) => s.정산월)).sort((a, b) => monthOrder(a) - monthOrder(b) || a.localeCompare(b, "ko"));
 }
 
-/** 정산월 기본값: 이번 달이 목록에 있으면 이번 달, 없으면 첫 번째 월 */
-function defaultMonth(monthOptions: string[]) {
-  const current = `${new Date().getMonth() + 1}월`;
-  return monthOptions.includes(current) ? current : (monthOptions[0] ?? "");
-}
 
 function Money({ value }: { value: number | null }) {
   return value === null ? <span className="text-zinc-300">-</span> : formatMoney(value);
@@ -281,8 +276,8 @@ function SettlementTable({
 
 export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
   const [sales, setSales] = useState("");
-  // 정산월은 반드시 하나를 고른다 (정산결과는 영업사원·정산월 단위로 저장)
-  const [month, setMonth] = useState(() => defaultMonth(monthOptionsOf(sites)));
+  // 정산월 기본값은 전체(""). 정산결과 저장은 영업사원·정산월이 하나씩인 현장만 골랐을 때 가능하다
+  const [month, setMonth] = useState("");
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [result, setResult] = useState<SettlementWithCarryIn | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -294,7 +289,7 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
   const salesOptions = useMemo(() => options(sites.map((s) => s.영업사원)).sort((a, b) => a.localeCompare(b, "ko")), [sites]);
   const monthOptions = useMemo(() => monthOptionsOf(sites), [sites]);
   const rows = useMemo(
-    () => sites.filter((s) => (!sales || s.영업사원?.trim() === sales) && !!month && s.정산월?.trim() === month),
+    () => sites.filter((s) => (!sales || s.영업사원?.trim() === sales) && (!month || s.정산월?.trim() === month)),
     [sites, sales, month],
   );
   const allChecked = rows.length > 0 && rows.every((s) => selected.has(s.id));
@@ -389,7 +384,7 @@ export function SettlementView({ sites }: { sites: SettlementCandidate[] }) {
         <label className="w-full sm:w-auto">
           <span className="mb-1 block text-xs font-medium text-zinc-700">정산월</span>
           <select value={month} onChange={(e) => changeFilter(() => setMonth(e.target.value))} className={SELECT}>
-            {monthOptions.length === 0 && <option value="">정산월 없음</option>}
+            <option value="">전체</option>
             {monthOptions.map((v) => (
               <option key={v} value={v}>
                 {v}

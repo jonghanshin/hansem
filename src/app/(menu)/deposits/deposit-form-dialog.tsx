@@ -31,7 +31,7 @@ import {
 } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
-import { VendorInfoSummary, VendorPickerDialog } from "./vendor-picker-dialog";
+import { accountTypeOf, VendorInfoSummary, VendorPickerDialog } from "./vendor-picker-dialog";
 
 /** 기기의 현재 날짜·시간 (입력 칸 형식) */
 function nowLocal() {
@@ -298,7 +298,22 @@ export function DepositFormDialog({
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <label className="col-span-2">
                 <Label required>입금구분</Label>
-                <select value={values.구분} onChange={(e) => set("구분", e.target.value)} required className={INPUT}>
+                <select
+                  value={values.구분}
+                  onChange={(e) => {
+                    const 구분 = e.target.value;
+                    // 대체계좌 거래처를 먼저 골라 둔 뒤 한샘 외 시공비로 바꿔도 부가세는 미포함
+                    setValues((v) => ({
+                      ...v,
+                      구분,
+                      ...(vatChoiceRequired(구분) && !vatChoiceRequired(v.구분) && accountTypeOf(vendorInfo) === "alt"
+                        ? { 부가세포함: "미포함" }
+                        : {}),
+                    }));
+                  }}
+                  required
+                  className={INPUT}
+                >
                   <option value="" disabled>
                     선택하세요
                   </option>
@@ -543,7 +558,12 @@ export function DepositFormDialog({
           current={vendorInfo}
           onClose={() => setPickerOpen(false)}
           onSelect={(info) => {
-            setValues((v) => ({ ...v, ...info }));
+            // 한샘 외 시공비에서 대체계좌로 입금하면 부가세는 미포함 (업체계좌로 바꿔도 자동으로 되돌리지 않는다)
+            setValues((v) => ({
+              ...v,
+              ...info,
+              ...(vatChoiceRequired(v.구분) && accountTypeOf(info) === "alt" ? { 부가세포함: "미포함" } : {}),
+            }));
             setPickerOpen(false);
           }}
         />

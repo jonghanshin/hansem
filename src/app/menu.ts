@@ -5,6 +5,11 @@ export const MENU = [
     description: "상담노트 작성, 연락·미팅·실측 일정과 후속 할 일 관리",
   },
   {
+    href: "/as",
+    label: "A/S관리",
+    description: "현장 검색으로 A/S 접수, 방문·처리 이력, 완료·고객 확인, 비용·사진 관리",
+  },
+  {
     href: "/sites",
     label: "현장정보",
     description: "현장 목록 조회, 신규 입력, 엑셀 업로드, 상세 수정",

@@ -13,6 +13,8 @@ export const BOARD_FILES_TABLE = "게시판첨부";
 export const CALENDAR_TABLE = "일정";
 export const CONSULT_TABLE = "상담";
 export const CONSULT_RECORDS_TABLE = "상담기록";
+export const AS_TABLE = "AS접수";
+export const AS_HISTORY_TABLE = "AS이력";
 
 export class MissingSupabaseConfigError extends Error {
   constructor() {

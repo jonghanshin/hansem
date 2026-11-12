@@ -75,9 +75,17 @@ export function canApprove(session: Pick<SessionPayload, "role"> | null): boolea
   return !!session && APPROVER_ROLES.includes(session.role.trim());
 }
 
-/** 고객상담을 쓰는 역할: RD와 관리자 이상. 상담은 모두가 함께 보고 고친다 (담당 RD로 나누지 않음) */
+/** 고객상담·A/S 관리에서 모든 고객·현장을 보는 역할 (관리자 이상 외에) */
+export const CONSULT_ALL_ROLES: readonly string[] = ["실장"];
+
+/**
+ * 고객상담·A/S 관리를 쓰는 역할: RD, 실장, 관리자 이상.
+ * RD는 담당 RD가 본인인 것만, 실장·관리자 이상은 전체를 본다 (화면에서 역할이 RD일 때만 범위를 좁힌다).
+ */
 export function canUseConsult(session: Pick<SessionPayload, "role"> | null): boolean {
-  return !!session && (session.role.trim() === RESTRICTED_ROLE || APPROVER_ROLES.includes(session.role.trim()));
+  if (!session) return false;
+  const role = session.role.trim();
+  return role === RESTRICTED_ROLE || CONSULT_ALL_ROLES.includes(role) || APPROVER_ROLES.includes(role);
 }
 
 export function isSuperAdmin(session: Pick<SessionPayload, "role"> | null): boolean {
