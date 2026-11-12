@@ -32,6 +32,7 @@ export function ConsultRecords({
   const formRef = useRef<HTMLFormElement>(null);
   const [customTime, setCustomTime] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -43,6 +44,7 @@ export function ConsultRecords({
     startTransition(async () => {
       const res = await addConsultRecordAction(consultId, form);
       if (!res.ok) return setError(res.error);
+      setWarning(res.data.warning);
       formRef.current?.reset();
       setCustomTime(false);
     });
@@ -100,7 +102,7 @@ export function ConsultRecords({
             </div>
           </fieldset>
           <label className="block">
-            <span className="mb-1 block text-xs text-zinc-600">다음 연락일</span>
+            <span className="mb-1 block text-xs text-zinc-600">다음 연락일 (캘린더에 등록)</span>
             <input type="date" name="다음연락일" className={`${INPUT} py-1`} />
           </label>
           <button
@@ -112,6 +114,7 @@ export function ConsultRecords({
           </button>
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {warning && <p className="text-sm text-amber-700">기록했습니다 · {warning}</p>}
       </form>
 
       {records.length === 0 ? (

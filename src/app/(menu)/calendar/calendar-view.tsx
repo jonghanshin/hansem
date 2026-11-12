@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
@@ -524,7 +525,8 @@ function EventDialog({
   const color = ownerColor ?? MY_COLOR;
   const owner = isMine ? `${me.name} (나)` : (ownerName ?? "");
 
-  if (event && !isMine) {
+  // 다른 사람 일정, 고객상담에서 자동 등록된 일정은 보기만
+  if (event && (!isMine || event.consultId)) {
     return (
       <Modal title="일정 보기" onClose={onClose}>
         <div className="flex flex-wrap items-center gap-2">
@@ -534,6 +536,14 @@ function EventDialog({
         <h3 className="mt-3 break-all text-lg font-semibold text-zinc-900">{event.title}</h3>
         <p className="mt-1 text-sm text-zinc-600">{formatEventPeriod(event)}</p>
         {event.memo && <p className="mt-4 whitespace-pre-wrap break-all rounded-md bg-zinc-50 p-3 text-sm text-zinc-800">{event.memo}</p>}
+        {event.consultId && (
+          <Link
+            href={`/consult/${event.consultId}`}
+            className="mt-4 block rounded-md bg-blue-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            상담노트 열기 →
+          </Link>
+        )}
       </Modal>
     );
   }

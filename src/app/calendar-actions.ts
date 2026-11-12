@@ -79,6 +79,7 @@ async function loadOwnEvent(id: number, uid: number) {
   const event = await fetchEvent(id);
   if (!event) return "일정을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)";
   if (event.ownerId !== uid) return "본인 일정만 수정·삭제할 수 있습니다";
+  if (event.consultId) return "고객상담에서 자동 등록된 일정입니다. 상담노트에서 날짜·상태를 바꾸세요";
   return event;
 }
 

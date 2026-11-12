@@ -9,6 +9,7 @@ import { fetchConsult, fetchConsultMembers, fetchConsultRecords } from "@/lib/co
 import { exclusionFor } from "@/lib/excluded-users";
 import { canApprove, canUseConsult, RESTRICTED_ROLE } from "@/lib/data-scope";
 
+import { ConsultFiles } from "../consult-files";
 import { ConsultForm } from "../consult-form";
 import { ConsultRecords } from "../consult-records";
 
@@ -66,6 +67,7 @@ async function ConsultDetail({ params }: { params: Params }) {
       today={todayInKorea()}
       recordCount={records.length}
       records={<ConsultRecords consultId={consult.id} records={records} meUid={session.uid} canManage={canApprove(session)} />}
+      files={<ConsultFiles consultId={consult.id} files={consult.첨부} meName={session.name} canManage={canApprove(session)} />}
     />
   );
 }

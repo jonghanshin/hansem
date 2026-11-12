@@ -4,12 +4,12 @@ import "server-only";
 // RD는 담당 RD('영업사원')가 본인인 상담만, 관리자 이상은 모든 상담을 보고 고친다.
 // 열외 계정이 담당이거나 등록한 상담·기록은 열외가 아닌 사용자에게 보이지 않는다.
 
-import type { Consult, ConsultMember, ConsultRecord, TodoItem, WorkItem } from "@/lib/consult-shared";
+import type { Consult, ConsultFile, ConsultMember, ConsultRecord, TodoItem, WorkItem } from "@/lib/consult-shared";
 import type { Exclusion } from "@/lib/excluded-users";
 import { AUTH_TABLE, CONSULT_RECORDS_TABLE, CONSULT_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 /** 저장할 수 있는 상담 컬럼 (id·고객번호·등록 정보 제외) */
-export type ConsultInput = Omit<Consult, "id" | "고객번호" | "등록일시" | "수정일시" | "현장번호">;
+export type ConsultInput = Omit<Consult, "id" | "고객번호" | "등록일시" | "수정일시" | "현장번호" | "첨부">;
 
 export type ConsultRecordInput = { 기록일시: string; 연락방법: string; 내용: string };
 
@@ -17,7 +17,7 @@ const RECORD_COLUMNS = "id, 상담id, 기록일시, 연락방법, 담당자, 내
 
 function tableError(label: string, message: string): Error {
   if (/schema cache|does not exist/i.test(message)) {
-    return new Error(`${label} 실패: 상담 테이블(또는 컬럼)이 없습니다. doc/상담노트.sql을 Supabase SQL Editor에서 실행해 주세요.`);
+    return new Error(`${label} 실패: 상담 테이블(또는 컬럼)이 없습니다. doc/상담노트.sql과 doc/상담노트_2단계.sql을 Supabase SQL Editor에서 실행해 주세요.`);
   }
   return new Error(`${label} 실패: ${message}`);
 }
@@ -40,6 +40,7 @@ function toConsult(r: Record<string, unknown>): Consult {
     실측일시: minutes(c.실측일시),
     공사항목: asArray<WorkItem>(r.공사항목),
     할일: asArray<TodoItem>(r.할일),
+    첨부: asArray<ConsultFile>(r.첨부),
   };
 }
 
@@ -137,6 +138,35 @@ export async function updateConsult(id: number, input: Partial<ConsultInput>): P
     .update({ ...input, 수정일시: new Date().toISOString() })
     .eq("id", id);
   if (error) throw tableError("상담 수정", error.message);
+}
+
+/** 첨부파일 목록 저장 */
+export async function setConsultFiles(id: number, files: ConsultFile[]): Promise<void> {
+  const { error } = await getSupabaseAdmin().from(CONSULT_TABLE).update({ 첨부: files }).eq("id", id);
+  if (error) throw tableError("첨부파일 저장", error.message);
+}
+
+/** 현장으로 전환: 현장번호 연결 + 진행단계 */
+export async function linkConsultSite(id: number, 현장번호: string, 진행단계: string): Promise<void> {
+  const { error } = await getSupabaseAdmin()
+    .from(CONSULT_TABLE)
+    .update({ 현장번호, 진행단계, 수정일시: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw tableError("현장 연결", error.message);
+}
+
+/** 현장번호 → 연결된 상담 id (현장정보 화면의 '상담노트 보기'용). 볼 수 있는 상담만 */
+export async function fetchConsultIdsBySite(view: ConsultView): Promise<Record<string, number>> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(CONSULT_TABLE)
+    .select("id, 현장번호, 영업사원, 등록자")
+    .not("현장번호", "is", null);
+  if (error) throw tableError("상담 연결 조회", error.message);
+  const map: Record<string, number> = {};
+  for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
+    if (!hiddenConsult(r, view) && typeof r.현장번호 === "string") map[r.현장번호] = r.id as number;
+  }
+  return map;
 }
 
 export async function deleteConsult(id: number): Promise<void> {

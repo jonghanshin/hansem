@@ -27,6 +27,8 @@ import {
   type WorkItem,
 } from "@/lib/consult-shared";
 
+import { SiteLink } from "./consult-site-link";
+
 const INPUT =
   "w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:bg-zinc-100 disabled:text-zinc-500";
 const BUTTON = "rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100";
@@ -38,6 +40,7 @@ const TABS = [
   { key: "estimate", label: "견적·상담핵심" },
   { key: "todo", label: "할 일" },
   { key: "records", label: "연락기록" },
+  { key: "files", label: "첨부" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -52,15 +55,19 @@ type Props = {
   /** 연락기록 탭 내용 (상세 화면) */
   records?: React.ReactNode;
   recordCount?: number;
+  /** 첨부 탭 내용 (상세 화면) */
+  files?: React.ReactNode;
 };
 
-export function ConsultForm({ consult, members, me, isRd, today, records, recordCount = 0 }: Props) {
+export function ConsultForm({ consult, members, me, isRd, today, records, recordCount = 0, files }: Props) {
   const router = useRouter();
   const isNew = consult === null;
   const [tab, setTab] = useState<TabKey>("basic");
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  /** 저장은 됐지만 캘린더 등록 등이 실패했을 때 */
+  const [warning, setWarning] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   // 연락 기록 등으로 서버 값이 바뀌면 입력칸을 새 값으로 다시 그린다
@@ -91,6 +98,7 @@ export function ConsultForm({ consult, members, me, isRd, today, records, record
       const res = consult ? await updateConsultAction(consult.id, form) : await createConsultAction(form);
       if (!res.ok) return setError(res.error);
       setDirty(false);
+      setWarning(res.data.warning);
       if (isNew) router.push(`/consult/${res.data.id}`);
       else setSaved(true);
     });
@@ -122,14 +130,15 @@ export function ConsultForm({ consult, members, me, isRd, today, records, record
             {consult.진행단계}
           </span>
           <span className="text-sm text-zinc-500">담당 {consult.영업사원 ?? "미지정"}</span>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={pending}
-            className="ml-auto rounded-md px-2.5 py-1 text-sm text-red-600 hover:bg-red-50"
-          >
-            삭제
-          </button>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <SiteLink consult={consult} today={today} dirty={dirty} onWarning={setWarning} />
+            <a href={`/consult/${consult.id}/export`} className={`${BUTTON} py-1`} title="지금 쓰는 상담노트 엑셀 양식으로 내려받기">
+              엑셀
+            </a>
+            <button type="button" onClick={remove} disabled={pending} className="rounded-md px-2.5 py-1 text-sm text-red-600 hover:bg-red-50">
+              삭제
+            </button>
+          </div>
         </div>
       ) : (
         <div>
@@ -159,12 +168,13 @@ export function ConsultForm({ consult, members, me, isRd, today, records, record
               {t.key === "works" && consult.공사항목.length > 0 && <Count n={consult.공사항목.length} />}
               {t.key === "todo" && <Count n={consult.할일.filter((x) => x.상태 !== "완료").length} />}
               {t.key === "records" && <Count n={recordCount} />}
+              {t.key === "files" && <Count n={consult.첨부.length} />}
             </button>
           ))}
         </nav>
       )}
 
-      <form key={version} onSubmit={submit} onChange={changed} className={tab === "records" && !isNew ? "hidden" : "space-y-3"}>
+      <form key={version} onSubmit={submit} onChange={changed} className={(tab === "records" || tab === "files") && !isNew ? "hidden" : "space-y-3"}>
         <Section title="1. 고객 및 현장 정보" hidden={!show("basic")}>
           <BasicFields consult={consult} members={members} me={me} isRd={isRd} today={today} />
         </Section>
@@ -208,7 +218,7 @@ export function ConsultForm({ consult, members, me, isRd, today, records, record
               ) : dirty ? (
                 <span className="text-amber-700">저장하지 않은 변경이 있습니다</span>
               ) : saved ? (
-                <span className="text-emerald-700">저장했습니다</span>
+                <span className={warning ? "text-amber-700" : "text-emerald-700"}>저장했습니다{warning && ` · ${warning}`}</span>
               ) : null}
             </p>
             <button
@@ -232,6 +242,14 @@ export function ConsultForm({ consult, members, me, isRd, today, records, record
           )}
           {records}
         </Section>
+      )}
+
+      {consult && tab === "files" && <Section title="첨부파일 (상담 자료·사진·도면)">{files}</Section>}
+
+      {consult && warning && !saved && (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+          {warning}
+        </p>
       )}
     </div>
   );

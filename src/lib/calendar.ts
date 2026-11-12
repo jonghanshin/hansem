@@ -16,6 +16,7 @@ type EventRecord = {
   종료일: string;
   시작시간: string | null;
   종료시간: string | null;
+  상담id: number | null;
 };
 
 export type EventInput = {
@@ -29,11 +30,11 @@ export type EventInput = {
   종료시간: string | null;
 };
 
-const COLUMNS = "id, 사용자, 제목, 메모, 구분, 색상, 시작일, 종료일, 시작시간, 종료시간";
+const COLUMNS = "id, 사용자, 제목, 메모, 구분, 색상, 시작일, 종료일, 시작시간, 종료시간, 상담id";
 
 function tableError(label: string, message: string): Error {
   if (/schema cache|does not exist/i.test(message)) {
-    return new Error(`${label} 실패: 일정 테이블(또는 컬럼)이 없습니다. doc/일정.sql을 Supabase SQL Editor에서 실행해 주세요.`);
+    return new Error(`${label} 실패: 일정 테이블(또는 컬럼)이 없습니다. doc/일정.sql(상담 연동 컬럼은 doc/상담노트_2단계.sql)을 Supabase SQL Editor에서 실행해 주세요.`);
   }
   return new Error(`${label} 실패: ${message}`);
 }
@@ -51,6 +52,7 @@ function toEvent(r: EventRecord): CalendarEvent {
     endTime: r.종료시간?.slice(0, 5) ?? null,
     shared: r.구분 === EVENT_KIND_SHARED,
     color: r.색상,
+    consultId: r.상담id ?? null,
   };
 }
 

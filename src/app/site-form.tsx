@@ -85,8 +85,11 @@ export function SiteForm({
   onDirtyChange,
   fixedSalesName = null,
   newSiteSales = null,
+  consultId = null,
 }: {
   site: Site | null; // null이면 신규 입력
+  /** 이 현장으로 전환된 상담노트 id (있으면 '상담노트 보기' 링크) */
+  consultId?: number | null;
   /** 새 현장에 자동으로 넣을 로그인한 영업사원 (권한 테이블에서 영업사원ID로 찾은 값) */
   newSiteSales?: Salesperson | null;
   /** 값이 있으면(RD 로그인) 영업사원을 이 이름으로 고정하고 수정할 수 없게 한다 */
@@ -422,6 +425,11 @@ export function SiteForm({
               })}
             </div>
             {section.title === "금액" && <ContractSumHint values={values} />}
+            {section.title === "영업" && consultId !== null && (
+              <a href={`/consult/${consultId}`} className="mt-3 inline-block text-sm font-medium text-blue-600 hover:underline">
+                📝 이 현장의 상담노트 보기 →
+              </a>
+            )}
             {section.title === "영업" && <SiteFilesSection site={site} onChange={onSynced} />}
           </fieldset>
         ))}

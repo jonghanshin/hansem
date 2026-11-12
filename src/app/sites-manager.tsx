@@ -28,15 +28,21 @@ export function SitesManager({
   initialSites,
   fixedSalesName = null,
   newSiteSales,
+  initialSiteId = null,
+  consultIds = {},
 }: {
   initialSites: Site[];
+  /** 처음 열어 둘 현장 (주소의 ?site=현장번호) */
+  initialSiteId?: number | null;
+  /** 현장번호 → 연결된 상담노트 id */
+  consultIds?: Record<string, number>;
   /** 새 현장에 자동으로 넣을 로그인한 영업사원 (권한 테이블 기준) */
   newSiteSales: Salesperson;
   /** RD 로그인이면 본인 이름 (신규·수정 시 영업사원 고정) */
   fixedSalesName?: string | null;
 }) {
   const [sites, setSites] = useState(initialSites);
-  const [panel, setPanel] = useState<Panel>({ kind: "none" });
+  const [panel, setPanel] = useState<Panel>(initialSiteId ? { kind: "edit", id: initialSiteId } : { kind: "none" });
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]>("전체");
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -254,6 +260,7 @@ export function SitesManager({
               site={panel.kind === "create" ? null : selected}
               fixedSalesName={fixedSalesName}
               newSiteSales={newSiteSales}
+              consultId={selected?.현장번호 ? (consultIds[selected.현장번호] ?? null) : null}
               onDirtyChange={(d) => {
                 dirtyRef.current = d;
               }}

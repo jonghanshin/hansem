@@ -8,6 +8,7 @@ import { todayInKorea } from "@/lib/calendar-shared";
 import { fetchConsults } from "@/lib/consult";
 import { exclusionFor } from "@/lib/excluded-users";
 import {
+  consultAgenda,
   formatDate,
   formatDateTime,
   formatManwon,
@@ -66,7 +67,7 @@ async function ConsultList({ searchParams }: { searchParams: SearchParams }) {
   const tabKey = (STAGE_TABS.some((t) => t.key === one(sp.tab)) ? one(sp.tab) : "active") as StageTabKey;
   const tab = STAGE_TABS.find((t) => t.key === tabKey)!;
   const q = one(sp.q).trim();
-  const focus = one(sp.focus); // due | meeting | measure
+  const focus = one(sp.focus); // today | due | meeting | measure
 
   const result = await fetchConsults(view).then(
     (rows) => ({ ok: true as const, rows }),
@@ -84,12 +85,14 @@ async function ConsultList({ searchParams }: { searchParams: SearchParams }) {
   const today = todayInKorea();
   const weekEnd = addDays(today, 7);
   const all = result.rows;
+  const todayCount = all.filter((c) => consultAgenda(c, today).length > 0).length;
   const dueCount = all.filter((c) => contactDue(c, today)).length;
   const meetingCount = all.filter((c) => upcoming(c.다음미팅일시, c.미팅상태, today, weekEnd)).length;
   const measureCount = all.filter((c) => upcoming(c.실측일시, c.실측상태, today, weekEnd)).length;
 
   const digits = q.replace(/\D/g, "");
   let rows = all.filter((c) => (tab.stages as readonly string[]).includes(c.진행단계));
+  if (focus === "today") rows = all.filter((c) => consultAgenda(c, today).length > 0);
   if (focus === "due") rows = all.filter((c) => contactDue(c, today));
   if (focus === "meeting") rows = all.filter((c) => upcoming(c.다음미팅일시, c.미팅상태, today, weekEnd));
   if (focus === "measure") rows = all.filter((c) => upcoming(c.실측일시, c.실측상태, today, weekEnd));
@@ -126,7 +129,8 @@ async function ConsultList({ searchParams }: { searchParams: SearchParams }) {
       </div>
 
       {/* 할 일 요약 */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <SummaryLink href={href({ focus: "today" })} active={focus === "today"} label="오늘 할 일" count={todayCount} tone="red" hint="연락·미팅·실측·할 일" />
         <SummaryLink href={href({ focus: "due" })} active={focus === "due"} label="연락할 고객" count={dueCount} tone="red" hint="다음 연락일 오늘·지남" />
         <SummaryLink href={href({ focus: "meeting" })} active={focus === "meeting"} label="이번주 미팅" count={meetingCount} tone="blue" hint="오늘부터 7일" />
         <SummaryLink href={href({ focus: "measure" })} active={focus === "measure"} label="이번주 실측" count={measureCount} tone="violet" hint="오늘부터 7일" />
@@ -135,7 +139,7 @@ async function ConsultList({ searchParams }: { searchParams: SearchParams }) {
       {focus ? (
         <p className="flex items-center gap-2 text-sm text-zinc-600">
           <span className="font-medium">
-            {focus === "due" ? "연락할 고객" : focus === "meeting" ? "이번주 미팅" : "이번주 실측"} {rows.length}명
+            {focus === "today" ? "오늘 할 일이 있는 고객" : focus === "due" ? "연락할 고객" : focus === "meeting" ? "이번주 미팅" : "이번주 실측"} {rows.length}명
           </span>
           <Link href={href({ tab: tabKey === "active" ? "" : tabKey })} className="text-blue-600 hover:underline">
             × 전체 목록으로

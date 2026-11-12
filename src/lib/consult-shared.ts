@@ -103,6 +103,7 @@ export type Consult = {
   견적자재안내: string;
   상담핵심: string;
   할일: TodoItem[];
+  첨부: ConsultFile[];
   현장번호: string | null;
   등록일시: string;
   수정일시: string | null;
@@ -117,6 +118,63 @@ export type ConsultRecord = {
   내용: string;
   등록자: number | null;
 };
+
+/** 상담노트 첨부파일 ('상담.첨부' jsonb 목록. 실제 파일은 upload/consult/<stored>) */
+export type ConsultFile = {
+  /** 사용자가 올린 원래 파일 이름 */
+  name: string;
+  /** upload/consult/ 아래 실제 저장 이름 */
+  stored: string;
+  size: number;
+  uploadedAt: string;
+  /** 올린 사람 이름 */
+  by: string;
+};
+
+export const CONSULT_FILE_MAX_BYTES = 20 * 1024 * 1024;
+export const CONSULT_FILES_MAX = 30;
+/** 저장 이름 형식: 1731400000000-uuid.ext */
+export const CONSULT_STORED_NAME_RE = /^\d{10,16}-[0-9a-f-]{36}(\.[a-z0-9]{1,10})?$/;
+
+export function consultFileUrl(consultId: number, stored: string): string {
+  return `/consult/${consultId}/files/${encodeURIComponent(stored)}`;
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+// ---------- 오늘 할 일 ----------
+
+export type AgendaKind = "연락" | "미팅" | "실측" | "할일";
+export type AgendaItem = { kind: AgendaKind; label: string; when: string; overdue: boolean };
+
+/**
+ * 오늘 챙길 일: 다음 연락일이 오늘·지남, 오늘 미팅·실측, 예정일이 오늘·지난 할 일.
+ * 보류·계약취소 상담은 뺀다.
+ */
+export function consultAgenda(c: Consult, today: string): AgendaItem[] {
+  if (c.진행단계 === "보류" || c.진행단계 === "계약취소") return [];
+  const items: AgendaItem[] = [];
+  if (isActiveStage(c.진행단계) && c.다음연락일 && c.다음연락일 <= today) {
+    items.push({ kind: "연락", label: "연락", when: c.다음연락일, overdue: c.다음연락일 < today });
+  }
+  const visit = (kind: "미팅" | "실측", at: string | null, state: string) => {
+    if (at && at.slice(0, 10) === today && state !== "완료" && state !== "취소") {
+      items.push({ kind, label: kind, when: at, overdue: false });
+    }
+  };
+  visit("미팅", c.다음미팅일시, c.미팅상태);
+  visit("실측", c.실측일시, c.실측상태);
+  for (const t of c.할일) {
+    if (t.예정일 && t.예정일 <= today && t.상태 !== "완료" && t.상태 !== "보류") {
+      items.push({ kind: "할일", label: t.내용, when: t.예정일, overdue: t.예정일 < today });
+    }
+  }
+  return items;
+}
 
 /** 담당 RD로 고를 수 있는 사람 */
 export type ConsultMember = { 영업사원ID: string; 이름: string; 역할: string };

@@ -11,11 +11,17 @@ import {
   fetchConsultRecord,
   insertConsult,
   insertConsultRecord,
+  linkConsultSite,
+  setConsultFiles,
   updateConsult,
   type ConsultInput,
   type ConsultView,
 } from "@/lib/consult";
+import { isBlockedFile } from "@/lib/board-shared";
+import { removeConsultFile, writeConsultFile } from "@/lib/consult-files";
 import {
+  CONSULT_FILE_MAX_BYTES,
+  CONSULT_FILES_MAX,
   CONSULT_KINDS,
   CONTACT_METHODS,
   CONTACT_STATES,
@@ -28,11 +34,15 @@ import {
   TODO_STATES,
   VISIT_STATES,
   WORK_ITEMS_MAX,
+  type ConsultFile,
   type TodoItem,
   type WorkItem,
 } from "@/lib/consult-shared";
+import { syncConsultEvents } from "@/lib/consult-calendar";
 import type { Exclusion } from "@/lib/excluded-users";
-import type { ActionResult } from "@/lib/sites";
+import { normalizeSiteInput, type ActionResult } from "@/lib/sites";
+import { fetchExistingSiteNumbers } from "@/lib/sites-data";
+import { getSupabaseAdmin, SITES_TABLE } from "@/lib/supabase-admin";
 
 // 고객상담 등록·수정·삭제와 연락 기록.
 // RD와 관리자 이상이 사용한다. RD는 담당이 본인인 상담만 다루고(담당 RD는 항상 본인),
@@ -41,6 +51,15 @@ import type { ActionResult } from "@/lib/sites";
 /** 로그인한 사람이 볼 수 있는 상담 범위 (RD는 본인 담당만) */
 function viewOf(auth: { exclusion: Exclusion; scope: { salesName: string | null } }): ConsultView {
   return { ...auth.exclusion, salesName: auth.scope.salesName };
+}
+
+/** 저장 직후 캘린더 동기화용: 범위 제한 없이 읽는다 (권한 확인은 이미 끝난 뒤) */
+const ALL_VIEW: ConsultView = { ids: [], names: [], salesName: null };
+
+/** 상담노트의 일정을 캘린더에 다시 만든다. 실패하면 경고 문구 (상담 저장은 성공) */
+async function syncCalendar(id: number): Promise<string | null> {
+  const fresh = await fetchConsult(id, ALL_VIEW);
+  return fresh ? syncConsultEvents(fresh) : null;
 }
 
 function fail(e: unknown): { ok: false; error: string } {
@@ -200,15 +219,18 @@ function formFail(e: unknown): { ok: false; error: string } {
   return e instanceof FormError ? { ok: false, error: e.message } : fail(e);
 }
 
-export async function createConsultAction(form: FormData): Promise<ActionResult<{ id: number }>> {
+export type SaveResult = { id: number; warning: string | null };
+
+export async function createConsultAction(form: FormData): Promise<ActionResult<SaveResult>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
   try {
     const input = await parseConsultForm(form, viewOf(auth), auth.sid);
     const id = await insertConsult(input, auth.uid);
+    const warning = await syncCalendar(id);
     refresh();
-    return { ok: true, data: { id } };
+    return { ok: true, data: { id, warning } };
   } catch (e) {
     return formFail(e);
   }
@@ -218,7 +240,7 @@ function validId(id: number): boolean {
   return Number.isSafeInteger(id) && id > 0;
 }
 
-export async function updateConsultAction(id: number, form: FormData): Promise<ActionResult<{ id: number }>> {
+export async function updateConsultAction(id: number, form: FormData): Promise<ActionResult<SaveResult>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
@@ -227,8 +249,9 @@ export async function updateConsultAction(id: number, form: FormData): Promise<A
     if (!(await fetchConsult(id, viewOf(auth)))) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
     const input = await parseConsultForm(form, viewOf(auth), auth.sid);
     await updateConsult(id, input);
+    const warning = await syncCalendar(id);
     refresh();
-    return { ok: true, data: { id } };
+    return { ok: true, data: { id, warning } };
   } catch (e) {
     return formFail(e);
   }
@@ -240,8 +263,11 @@ export async function deleteConsultAction(id: number): Promise<ActionResult<null
   if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
   if (!validId(id)) return { ok: false, error: "잘못된 상담 번호입니다" };
   try {
-    if (!(await fetchConsult(id, viewOf(auth)))) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    const consult = await fetchConsult(id, viewOf(auth));
+    if (!consult) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    // 연락 기록·자동 등록 일정은 DB에서 함께 지워지고(on delete cascade), 첨부파일은 여기서 지운다
     await deleteConsult(id);
+    await Promise.all(consult.첨부.map((f) => removeConsultFile(f.stored)));
     return { ok: true, data: null };
   } catch (e) {
     return fail(e);
@@ -252,7 +278,7 @@ export async function deleteConsultAction(id: number): Promise<ActionResult<null
  * 연락 기록 추가. 상담노트의 최근 연락일·연락 방법도 함께 갱신하고,
  * 연락 결과·다음 연락일을 고르면 연락 상태·다음 연락일도 바꾼다.
  */
-export async function addConsultRecordAction(consultId: number, form: FormData): Promise<ActionResult<null>> {
+export async function addConsultRecordAction(consultId: number, form: FormData): Promise<ActionResult<{ warning: string | null }>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
@@ -278,8 +304,10 @@ export async function addConsultRecordAction(consultId: number, form: FormData):
       ...(연락상태 ? { 연락상태 } : {}),
       ...(다음연락일 ? { 다음연락일 } : {}),
     });
+    // 다음 연락일이 바뀌면 캘린더의 연락 일정도 옮긴다
+    const warning = 다음연락일 && 다음연락일 !== consult.다음연락일 ? await syncCalendar(consultId) : null;
     refresh();
-    return { ok: true, data: null };
+    return { ok: true, data: { warning } };
   } catch (e) {
     return formFail(e);
   }
@@ -299,6 +327,113 @@ export async function deleteConsultRecordAction(recordId: number): Promise<Actio
     await deleteConsultRecord(recordId);
     refresh();
     return { ok: true, data: null };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- 현장으로 전환 ----------
+
+/** 상담을 현장정보로 전환: 현장번호(직접 입력)로 현장을 만들고 상담과 연결한다 */
+export async function convertConsultToSiteAction(consultId: number, form: FormData): Promise<ActionResult<{ 현장번호: string; warning: string | null }>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
+  if (!validId(consultId)) return { ok: false, error: "잘못된 상담 번호입니다" };
+  try {
+    const c = await fetchConsult(consultId, viewOf(auth));
+    if (!c) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    if (c.현장번호) return { ok: false, error: `이미 현장 ${c.현장번호}(으)로 전환된 상담입니다` };
+    if (!c.영업사원) return { ok: false, error: "담당 RD를 먼저 지정하고 저장하세요" };
+
+    const 현장번호 = text(form, "현장번호", 50);
+    if (!현장번호) return { ok: false, error: "현장번호를 입력하세요" };
+    const 계약일 = date(form, "계약일") ?? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+    // 견적에서 뺀 공사는 공사품목에 넣지 않는다
+    const 공사품목 = c.공사항목
+      .filter((w) => w.항목 && w.우선순위 !== "제외" && w.견적반영 !== "제외")
+      .map((w) => w.항목)
+      .join(", ");
+
+    const { data, errors } = normalizeSiteInput({
+      현장번호,
+      고객명: c.고객명,
+      고객전화번호: c.연락처,
+      영업사원: c.영업사원,
+      영업사원ID: c.영업사원ID,
+      현장주소: c.현장주소,
+      계약일,
+      공사시기: c.시공예정월 ? `${c.시공예정월}-01` : null,
+      공사품목: 공사품목 || null,
+      정산여부: "미정산",
+      특이사항: `고객상담 ${c.고객번호}에서 전환`,
+    });
+    if (errors.length) return { ok: false, error: errors.join("\n") };
+    if ((await fetchExistingSiteNumbers([현장번호])).size > 0) return { ok: false, error: `현장번호 ${현장번호}은(는) 이미 등록되어 있습니다` };
+
+    const row = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== null && v !== ""));
+    const { error } = await getSupabaseAdmin().from(SITES_TABLE).insert(row);
+    if (error) return { ok: false, error: error.code === "23505" ? "이미 사용 중인 현장번호입니다" : `현장 등록 실패: ${error.message}` };
+
+    // 계약 이후 단계가 아니면 '계약완료'로
+    const stage = ["계약완료", "시공중", "시공완료"].includes(c.진행단계) ? c.진행단계 : "계약완료";
+    await linkConsultSite(consultId, 현장번호, stage);
+    const warning = await syncCalendar(consultId);
+    refresh();
+    return { ok: true, data: { 현장번호, warning } };
+  } catch (e) {
+    return formFail(e);
+  }
+}
+
+// ---------- 첨부파일 ----------
+
+/** 첨부파일 한 개 올리기 (여러 개는 화면에서 하나씩 보낸다) */
+export async function uploadConsultFileAction(consultId: number, formData: FormData): Promise<ActionResult<ConsultFile[]>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
+  if (!validId(consultId)) return { ok: false, error: "잘못된 상담 번호입니다" };
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "파일을 선택하세요" };
+  if (file.size > CONSULT_FILE_MAX_BYTES) return { ok: false, error: `${file.name}: 파일은 20MB까지 올릴 수 있습니다` };
+  if (isBlockedFile(file.name)) return { ok: false, error: `${file.name}: 실행 파일 형식은 올릴 수 없습니다` };
+  try {
+    const c = await fetchConsult(consultId, viewOf(auth));
+    if (!c) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    if (c.첨부.length >= CONSULT_FILES_MAX) return { ok: false, error: `첨부파일은 ${CONSULT_FILES_MAX}개까지 올릴 수 있습니다` };
+    const info = await writeConsultFile(file, auth.name);
+    const files = [...c.첨부, info];
+    try {
+      await setConsultFiles(consultId, files);
+    } catch (e) {
+      await removeConsultFile(info.stored); // DB 저장에 실패하면 방금 쓴 파일을 지운다
+      throw e;
+    }
+    refresh();
+    return { ok: true, data: files };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** 첨부파일 삭제: 올린 본인 또는 관리자 이상 */
+export async function deleteConsultFileAction(consultId: number, stored: string): Promise<ActionResult<ConsultFile[]>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
+  if (!validId(consultId) || typeof stored !== "string") return { ok: false, error: "잘못된 요청입니다" };
+  try {
+    const c = await fetchConsult(consultId, viewOf(auth));
+    if (!c) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    const target = c.첨부.find((f) => f.stored === stored);
+    if (!target) return { ok: false, error: "파일을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    if (target.by !== auth.name && !auth.canApprove) return { ok: false, error: "본인이 올린 파일만 삭제할 수 있습니다" };
+    const files = c.첨부.filter((f) => f.stored !== stored);
+    await setConsultFiles(consultId, files);
+    await removeConsultFile(stored);
+    refresh();
+    return { ok: true, data: files };
   } catch (e) {
     return fail(e);
   }

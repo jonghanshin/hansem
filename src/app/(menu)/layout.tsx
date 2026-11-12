@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { AdminNavLinks } from "@/app/admin-menu";
+import { ConsultTodayNotice } from "@/app/consult-today-notice";
 import { PendingApprovalsNotice } from "@/app/pending-approvals-notice";
 import { UserMenu } from "@/app/user-menu";
 
@@ -19,6 +20,9 @@ export default function MenuLayout({ children }: { children: React.ReactNode }) 
         }
         userSlot={
           <>
+            <Suspense fallback={null}>
+              <ConsultTodayNotice variant="nav" />
+            </Suspense>
             <Suspense fallback={null}>
               <PendingApprovalsNotice variant="nav" />
             </Suspense>

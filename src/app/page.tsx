@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { AdminMenuCards } from "@/app/admin-menu";
+import { ConsultTodayNotice } from "@/app/consult-today-notice";
 import { MENU } from "@/app/menu";
 import { PendingApprovalsNotice } from "@/app/pending-approvals-notice";
 import { UserMenu } from "@/app/user-menu";
@@ -22,6 +23,9 @@ export default function Home() {
 
         <Suspense fallback={null}>
           <PendingApprovalsNotice variant="banner" />
+        </Suspense>
+        <Suspense fallback={null}>
+          <ConsultTodayNotice variant="banner" />
         </Suspense>
 
         <ul className="mt-8 grid gap-4 sm:grid-cols-2">

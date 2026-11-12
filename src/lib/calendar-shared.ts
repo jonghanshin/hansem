@@ -16,6 +16,8 @@ export type CalendarEvent = {
   shared: boolean;
   /** 개인 일정: 직접 고른 색 (EVENT_COLORS 키, null이면 사람별 기본 색) / 공용 일정: Team 분류 (TEAM_CATEGORIES 키) */
   color: string | null;
+  /** 고객상담에서 자동 등록된 일정이면 그 상담 id (캘린더에서는 고칠 수 없고 상담노트에서 바꾼다) */
+  consultId: number | null;
 };
 
 export const EVENT_KIND_PERSONAL = "개인";
