@@ -60,19 +60,20 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
   const [navigating, startNavigation] = useTransition();
   const [dialog, setDialog] = useState<DialogState>(null);
 
-  // 날짜 칸 두 번 탭(더블클릭) → 그날 전체 일정 목록.
+  // 날짜 칸 한 번 클릭 → 그날 전체 일정 목록, 두 번 클릭(더블클릭) → 수정 (일정 위면 그 일정, 빈 곳이면 새 일정).
   // 모바일 브라우저는 dblclick 이벤트가 잘 오지 않아 클릭 간격으로 직접 판단한다.
-  // 한 번만 누르면 잠깐 기다렸다가 원래 동작(새 일정 / 일정 보기)을 한다.
+  // 한 번만 누르면 두 번째 클릭을 잠깐 기다렸다가 목록을 연다.
   const pendingTap = useRef<{ date: string; timer: number } | null>(null);
   useEffect(() => () => window.clearTimeout(pendingTap.current?.timer), []);
-  const tapDay = (date: string, onSingleTap: () => void) => {
+  const tapDay = (date: string, onDoubleTap: () => void) => {
     const prev = pendingTap.current;
     if (prev) window.clearTimeout(prev.timer);
     if (prev?.date === date) {
       pendingTap.current = null;
-      setDialog({ kind: "day", date });
+      onDoubleTap();
       return;
     }
+    const onSingleTap = () => setDialog({ kind: "day", date });
     pendingTap.current = {
       date,
       timer: window.setTimeout(() => {
@@ -176,7 +177,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
                     <div
                       key={date}
                       onClick={() => tapDay(date, () => setDialog({ kind: "new", date }))}
-                      title="두 번 누르면 이 날 일정 전체 보기"
+                      title="한 번 누르면 이 날 일정 목록, 두 번 누르면 새 일정 · 일정 위에서 두 번 누르면 그 일정 수정"
                       className={`group min-h-24 cursor-pointer touch-manipulation select-none border-r border-zinc-100 p-1 last:border-r-0 hover:bg-blue-50/40 sm:min-h-28 ${
                         inMonth ? "" : "bg-zinc-50/70"
                       }`}

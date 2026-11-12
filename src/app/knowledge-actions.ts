@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 
 import { authorizeAction } from "@/lib/auth";
 import { deleteKnowledgeRow, fetchVendorPickerData, insertKnowledgeRow, toRecord, updateKnowledgeRow } from "@/lib/knowledge";
-import { isKnowledgeKey, type KnowledgeInput, type VendorPickerData } from "@/lib/knowledge-shared";
+import { isKnowledgeKey, MANAGER_ONLY_KNOWLEDGE, type KnowledgeInput, type VendorPickerData } from "@/lib/knowledge-shared";
 import type { ActionResult } from "@/lib/sites";
 
 // 지식자산(공정별거래처·타공정거래처·공정표) 추가·수정·삭제. 로그인한 사용자는 누구나 할 수 있다.
@@ -37,6 +37,7 @@ export async function saveKnowledgeRowAction(
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   if (!isKnowledgeKey(tableKey)) return { ok: false, error: "잘못된 테이블입니다" };
+  if (MANAGER_ONLY_KNOWLEDGE.includes(tableKey) && !auth.canApprove) return { ok: false, error: "관리자 이상만 수정할 수 있습니다" };
   if (id !== null && !validId(id)) return { ok: false, error: "잘못된 행 번호입니다" };
   if (typeof input !== "object" || input === null) return { ok: false, error: "입력값이 올바르지 않습니다" };
   const record = toRecord(tableKey, input);
@@ -56,6 +57,7 @@ export async function deleteKnowledgeRowAction(tableKey: string, id: number): Pr
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   if (!isKnowledgeKey(tableKey)) return { ok: false, error: "잘못된 테이블입니다" };
+  if (MANAGER_ONLY_KNOWLEDGE.includes(tableKey) && !auth.canApprove) return { ok: false, error: "관리자 이상만 수정할 수 있습니다" };
   if (!validId(id)) return { ok: false, error: "잘못된 행 번호입니다" };
   try {
     await deleteKnowledgeRow(tableKey, id);

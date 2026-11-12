@@ -4,7 +4,8 @@ import { Suspense } from "react";
 
 import { requireUser } from "@/lib/auth";
 import { fetchKnowledgeRows } from "@/lib/knowledge";
-import { isKnowledgeKey, KNOWLEDGE_KEYS, KNOWLEDGE_TABLES, type KnowledgeTableKey } from "@/lib/knowledge-shared";
+import { canApprove } from "@/lib/data-scope";
+import { isKnowledgeKey, KNOWLEDGE_TABLES, visibleKnowledgeKeys, type KnowledgeTableKey } from "@/lib/knowledge-shared";
 
 import { KnowledgeTable } from "./knowledge-table";
 
@@ -24,10 +25,12 @@ export default function KnowledgePage({ searchParams }: { searchParams: SearchPa
 
 async function KnowledgeContent({ searchParams }: { searchParams: SearchParams }) {
   await connection();
-  await requireUser();
+  const session = await requireUser();
+  // 공정별거래처·타공정거래처는 관리자 이상만 (주소를 직접 입력해도 첫 번째로 볼 수 있는 탭으로)
+  const keys = visibleKnowledgeKeys(canApprove(session));
   const sp = await searchParams;
   const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
-  const tab: KnowledgeTableKey = isKnowledgeKey(rawTab) ? rawTab : "vendors";
+  const tab: KnowledgeTableKey = isKnowledgeKey(rawTab) && keys.includes(rawTab) ? rawTab : keys[0];
 
   const result = await fetchKnowledgeRows(tab).then(
     (rows) => ({ ok: true as const, rows }),
@@ -39,12 +42,12 @@ async function KnowledgeContent({ searchParams }: { searchParams: SearchParams }
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 pt-3 sm:px-6">
         <h1 className="pb-3 text-lg font-semibold text-zinc-900">지식자산</h1>
         <nav className="flex gap-1 self-end" aria-label="지식자산 종류">
-          {KNOWLEDGE_KEYS.map((k) => {
+          {keys.map((k) => {
             const active = k === tab;
             return (
               <Link
                 key={k}
-                href={k === "vendors" ? "/knowledge" : `/knowledge?tab=${k}`}
+                href={k === keys[0] ? "/knowledge" : `/knowledge?tab=${k}`}
                 aria-current={active ? "page" : undefined}
                 className={`-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm font-medium ${
                   active ? "border-blue-600 text-blue-700" : "border-transparent text-zinc-500 hover:text-zinc-900"

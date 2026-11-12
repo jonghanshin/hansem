@@ -87,6 +87,14 @@ export const KNOWLEDGE_TABLES = {
 export type KnowledgeTableKey = keyof typeof KNOWLEDGE_TABLES;
 export const KNOWLEDGE_KEYS = Object.keys(KNOWLEDGE_TABLES) as KnowledgeTableKey[];
 
+/** 관리자 이상(CEO·관리자·슈퍼관리자)만 보는 지식자산: 거래처 목록 (화면·저장 모두 막는다) */
+export const MANAGER_ONLY_KNOWLEDGE: readonly KnowledgeTableKey[] = ["vendors", "others"];
+
+/** 이 사용자에게 보이는 지식자산 종류 */
+export function visibleKnowledgeKeys(isManager: boolean): KnowledgeTableKey[] {
+  return KNOWLEDGE_KEYS.filter((k) => isManager || !MANAGER_ONLY_KNOWLEDGE.includes(k));
+}
+
 export function isKnowledgeKey(v: unknown): v is KnowledgeTableKey {
   return typeof v === "string" && Object.hasOwn(KNOWLEDGE_TABLES, v);
 }
