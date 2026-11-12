@@ -13,6 +13,7 @@ import {
   EVENT_MEMO_MAX,
   EVENT_TITLE_MAX,
   formatEventPeriod,
+  HIDDEN_PICKER_MEMBERS,
   isEventColor,
   MAX_SELECTED_MEMBERS,
   memberColors,
@@ -332,7 +333,12 @@ function MemberPicker({
   const [draft, setDraft] = useState<number[]>(selectedIds);
   const ref = useRef<HTMLDivElement>(null);
 
-  const others = members.filter((m) => m.id !== me.id && (!q.trim() || m.name.includes(q.trim())));
+  const others = members.filter(
+    (m) =>
+      m.id !== me.id &&
+      !HIDDEN_PICKER_MEMBERS.includes(m.name) &&
+      (!q.trim() || m.name.includes(q.trim())),
+  );
 
   const close = () => {
     setOpen(false);

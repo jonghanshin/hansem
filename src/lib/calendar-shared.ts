@@ -25,6 +25,8 @@ export const EVENT_TITLE_MAX = 100;
 export const EVENT_MEMO_MAX = 2000;
 /** 한 번에 같이 볼 수 있는 다른 팀원 수 */
 export const MAX_SELECTED_MEMBERS = 20;
+/** 팀원 선택 목록에 보이지 않는 사람 (이름 기준) */
+export const HIDDEN_PICKER_MEMBERS: readonly string[] = ["신종한"];
 
 export const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
