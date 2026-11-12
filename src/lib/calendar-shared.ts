@@ -14,7 +14,7 @@ export type CalendarEvent = {
   endTime: string | null;
   /** true면 공용 일정: 모든 사람에게 보인다 */
   shared: boolean;
-  /** 개인 일정에 직접 고른 색 (EVENT_COLORS 키). null이면 사람별 기본 색 */
+  /** 개인 일정: 직접 고른 색 (EVENT_COLORS 키, null이면 사람별 기본 색) / 공용 일정: Team 분류 (TEAM_CATEGORIES 키) */
   color: string | null;
 };
 
@@ -125,8 +125,28 @@ export function formatEventPeriod(e: CalendarEvent): string {
 
 export type MemberColor = { chip: string; dot: string };
 
-/** 공용 일정 색 (누가 등록했든 같은 색) */
+/** 공용 일정 색 (누가 등록했든 같은 색) — Team 분류 '기타' */
 export const SHARED_COLOR: MemberColor = { chip: "bg-zinc-800 text-white border-l-red-500", dot: "bg-zinc-800" };
+
+/** Team(공용) 일정 분류. 공용 일정은 '일정.색상' 컬럼에 이 키를 저장하고, 분류별 색으로 보인다 */
+export const TEAM_CATEGORIES = {
+  휴무: { chip: "bg-orange-500 text-white border-l-orange-800", dot: "bg-orange-500" },
+  한샘근무: { chip: "bg-indigo-600 text-white border-l-indigo-900", dot: "bg-indigo-600" },
+  기타: SHARED_COLOR,
+} satisfies Record<string, MemberColor>;
+
+export type TeamCategory = keyof typeof TEAM_CATEGORIES;
+export const TEAM_CATEGORY_KEYS = Object.keys(TEAM_CATEGORIES) as TeamCategory[];
+export const TEAM_CATEGORY_DEFAULT: TeamCategory = "기타";
+
+export function isTeamCategory(v: unknown): v is TeamCategory {
+  return typeof v === "string" && Object.hasOwn(TEAM_CATEGORIES, v);
+}
+
+/** 공용 일정의 분류 (예전 일정처럼 값이 없으면 '기타') */
+export function teamCategoryOf(e: CalendarEvent): TeamCategory {
+  return isTeamCategory(e.color) ? e.color : TEAM_CATEGORY_DEFAULT;
+}
 
 /** 본인 일정 색 */
 export const MY_COLOR: MemberColor = { chip: "bg-blue-100 text-blue-900 border-l-blue-500", dot: "bg-blue-500" };

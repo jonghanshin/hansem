@@ -19,9 +19,13 @@ import {
   memberColors,
   monthWeeks,
   MY_COLOR,
-  SHARED_COLOR,
   shiftMonth,
+  TEAM_CATEGORIES,
+  TEAM_CATEGORY_DEFAULT,
+  TEAM_CATEGORY_KEYS,
+  teamCategoryOf,
   WEEKDAYS,
+  type TeamCategory,
   type CalendarEvent,
   type CalendarMember,
   type MemberColor,
@@ -96,7 +100,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
   const colorOf = (id: number) => colors.get(id) ?? MY_COLOR;
   const nameOf = (id: number) => names.get(id) ?? "(알 수 없음)";
   const eventColor = (e: CalendarEvent) =>
-    e.shared ? SHARED_COLOR : isEventColor(e.color) ? EVENT_COLORS[e.color] : colorOf(e.ownerId);
+    e.shared ? TEAM_CATEGORIES[teamCategoryOf(e)] : isEventColor(e.color) ? EVENT_COLORS[e.color] : colorOf(e.ownerId);
 
   return (
     <div className="flex flex-1 flex-col lg:min-h-0">
@@ -138,7 +142,9 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
       {/* 보이는 사람 범례 */}
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 text-xs sm:px-6">
         <span className="text-zinc-500">표시 중:</span>
-        <LegendChip color={SHARED_COLOR} label="공용 (모두에게 보임)" />
+        {TEAM_CATEGORY_KEYS.map((c) => (
+          <LegendChip key={c} color={TEAM_CATEGORIES[c]} label={`Team·${c}`} />
+        ))}
         <LegendChip color={MY_COLOR} label={`${me.name} (나)`} />
         {selectedIds.map((id) => (
           <LegendChip
@@ -276,7 +282,7 @@ function EventChip({
         ev.stopPropagation();
         onClick();
       }}
-      title={`${event.shared ? "[공용] " : ""}${ownerName ? `[${ownerName}] ` : ""}${event.title} (${formatEventPeriod(event)})`}
+      title={`${event.shared ? `[Team·${teamCategoryOf(event)}] ` : ""}${ownerName ? `[${ownerName}] ` : ""}${event.title} (${formatEventPeriod(event)})`}
       className={`block w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[11px] leading-tight hover:brightness-95 sm:text-xs ${color.chip}`}
     >
       {event.shared && <SharedBadge className="mr-1" />}
@@ -287,9 +293,11 @@ function EventChip({
   );
 }
 
-function SharedBadge({ className = "" }: { className?: string }) {
+function SharedBadge({ className = "", category }: { className?: string; category?: TeamCategory }) {
   return (
-    <span className={`inline-block rounded bg-red-500 px-1 text-[10px] font-bold leading-4 text-white ${className}`}>공용</span>
+    <span className={`inline-block rounded bg-red-500 px-1 text-[10px] font-bold leading-4 text-white ${className}`}>
+      Team{category && ` · ${category}`}
+    </span>
   );
 }
 
@@ -471,7 +479,7 @@ function DayDialog({
               className={`block w-full rounded border-l-4 px-3 py-2 text-left hover:brightness-95 ${colorOf(e).chip}`}
             >
               <span className="flex flex-wrap items-center gap-x-1.5 text-xs opacity-80">
-                {e.shared && <SharedBadge />}
+                {e.shared && <SharedBadge category={teamCategoryOf(e)} />}
                 <span className="font-semibold">{e.ownerId === meId ? "나" : nameOf(e.ownerId)}</span>
                 <span className="tabular-nums">{formatEventPeriod(e)}</span>
               </span>
@@ -510,6 +518,9 @@ function EventDialog({
   const [allDay, setAllDay] = useState(event ? event.startTime === null : true);
   const [shared, setShared] = useState(event?.shared ?? false);
   const [colorKey, setColorKey] = useState(isEventColor(event?.color) ? event.color : "");
+  const [teamCategory, setTeamCategory] = useState<TeamCategory>(
+    event?.shared ? teamCategoryOf(event) : TEAM_CATEGORY_DEFAULT,
+  );
 
   const isMine = !event || event.ownerId === me.id;
   const color = ownerColor ?? MY_COLOR;
@@ -519,7 +530,7 @@ function EventDialog({
     return (
       <Modal title="일정 보기" onClose={onClose}>
         <div className="flex flex-wrap items-center gap-2">
-          {event.shared && <SharedBadge />}
+          {event.shared && <SharedBadge category={teamCategoryOf(event)} />}
           <OwnerBadge color={color} name={event.shared ? `등록: ${owner}` : owner} />
         </div>
         <h3 className="mt-3 break-all text-lg font-semibold text-zinc-900">{event.title}</h3>
@@ -561,7 +572,7 @@ function EventDialog({
           <div className="grid grid-cols-2 gap-2">
             {[
               { value: EVENT_KIND_PERSONAL, label: "개인", hint: "나와 나를 선택한 사람에게" },
-              { value: EVENT_KIND_SHARED, label: "공용", hint: "모든 사람에게 보임" },
+              { value: EVENT_KIND_SHARED, label: "Team", hint: "모든 사람에게 보임" },
             ].map((k) => (
               <label
                 key={k.value}
@@ -584,9 +595,28 @@ function EventDialog({
           </div>
         </fieldset>
         {shared ? (
-          <p className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <SharedBadge /> 공용 일정은 모두 같은 공용 색으로 표시됩니다.
-          </p>
+          <fieldset>
+            <legend className="mb-1 block text-xs font-medium text-zinc-700">Team 분류</legend>
+            <div className="grid grid-cols-3 gap-2">
+              {TEAM_CATEGORY_KEYS.map((c) => (
+                <label
+                  key={c}
+                  className={`flex cursor-pointer items-center justify-center gap-1.5 rounded-md border-l-4 px-2 py-1.5 text-sm font-medium has-checked:ring-2 has-checked:ring-zinc-900 has-checked:ring-offset-1 ${TEAM_CATEGORIES[c].chip}`}
+                >
+                  <input
+                    type="radio"
+                    name="teamCategory"
+                    value={c}
+                    checked={teamCategory === c}
+                    onChange={() => setTeamCategory(c)}
+                    className="size-4 accent-white"
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">분류에 따라 달력에 표시되는 색이 정해집니다.</p>
+          </fieldset>
         ) : (
           <fieldset>
             <legend className="mb-1 block text-xs font-medium text-zinc-700">색상</legend>

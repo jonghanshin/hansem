@@ -8,7 +8,7 @@ create table if not exists public."일정" (
   "제목"      text        not null,
   "메모"      text        not null default '',
   "구분"      text        not null default '개인', -- 개인: 본인·선택한 사람에게만 / 공용: 모든 사람에게 보임
-  "색상"      text,                              -- 개인 일정 색 (blue, emerald, ...). null이면 사람별 기본 색
+  "색상"      text,                              -- 개인 일정: 색 (blue, emerald, ...; null이면 사람별 기본 색) / 공용(Team) 일정: 분류 (휴무, 한샘근무, 기타)
   "시작일"    date        not null,
   "종료일"    date        not null,              -- 하루 일정이면 시작일과 같음
   "시작시간"  time,                              -- null이면 종일 일정

@@ -10,6 +10,7 @@ import {
   EVENT_MEMO_MAX,
   EVENT_TITLE_MAX,
   isEventColor,
+  isTeamCategory,
   isValidDate,
   isValidTime,
 } from "@/lib/calendar-shared";
@@ -44,12 +45,14 @@ function parseForm(form: FormData): EventInput | string {
   }
   const shared = form.get("kind") === EVENT_KIND_SHARED;
   const color = form.get("color");
+  const category = form.get("teamCategory");
+  if (shared && !isTeamCategory(category)) return "Team 일정의 분류(휴무/한샘근무/기타)를 선택하세요";
   return {
     제목: title,
     메모: memo,
     구분: shared ? EVENT_KIND_SHARED : EVENT_KIND_PERSONAL,
-    // 색은 개인 일정에만. 공용 일정은 항상 공용 색으로 보인다
-    색상: !shared && isEventColor(color) ? color : null,
+    // 개인 일정은 고른 색, Team(공용) 일정은 분류(휴무/한샘근무/기타)를 저장한다. 분류에 따라 색이 정해진다
+    색상: shared ? (category as string) : isEventColor(color) ? color : null,
     시작일: startDate,
     종료일: endDate,
     시작시간: startTime || null,
