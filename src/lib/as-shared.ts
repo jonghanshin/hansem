@@ -1,6 +1,25 @@
 // A/S 관리: 서버·브라우저에서 함께 쓰는 타입·선택값·규칙.
 // 선택값과 '확인 사항' 규칙은 doc/A_S관리노트.xlsx('입력안내' 시트, 'AS 관리대장' X열 수식)와 같다.
 
+import { VENDOR_INFO_COLUMNS, type VendorInfo } from "@/lib/deposits";
+
+/** 협력업체 거래처 정보 → 목록·검색용 요약 (업체 / 담당자 / 연락처, 업체가 없으면 공정) */
+export function vendorSummary(info: VendorInfo | null | undefined): string {
+  if (!info) return "";
+  const name = info.업체.trim() || info.공정.trim();
+  return [name, info.업체담당자성함.trim(), info.업체담당자연락처.trim()].filter(Boolean).join(" / ").slice(0, 300);
+}
+
+/** 저장된 JSON 값 → 거래처 정보 (항목이 하나도 없으면 null) */
+export function toVendorInfo(raw: unknown): VendorInfo | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const info = Object.fromEntries(
+    VENDOR_INFO_COLUMNS.map((k) => [k, typeof o[k] === "string" ? (o[k] as string).trim().slice(0, 2000) : ""]),
+  ) as VendorInfo;
+  return info.공정 ? info : null;
+}
+
 export const AS_ROUTES = ["전화", "문자", "카카오톡", "현장", "이메일", "기타"] as const;
 export const AS_TRADES = [
   "도배",
@@ -67,7 +86,10 @@ export type AsCase = {
   접수일: string;
   접수경로: string;
   담당자: string;
+  /** 처리 협력업체 요약 (목록·검색용: 업체 / 담당자 / 연락처) */
   협력업체: string;
+  /** 처리 협력업체 거래처 정보 (입금 등록의 거래처 정보와 같은 항목). 예전 접수는 없을 수 있다 */
+  협력업체정보?: VendorInfo | null;
   공종: string;
   발생위치: string;
   발생일: string | null;

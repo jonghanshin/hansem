@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
+import { AddressInput } from "@/app/address-input";
 import { createAsAction, searchAsSitesAction } from "@/app/as-actions";
 import {
   AS_LONG_TEXT_MAX,
@@ -184,7 +185,7 @@ export function AsNewForm({
                 <input name="연락처" type="tel" value={customer.연락처} onChange={(e) => setC("연락처", e.target.value)} maxLength={50} className={INPUT} />
               </Field>
               <Field label="현장명·주소" wide>
-                <input name="현장주소" value={customer.현장주소} onChange={(e) => setC("현장주소", e.target.value)} maxLength={200} className={INPUT} />
+                <AddressInput name="현장주소" value={customer.현장주소} onChange={(e) => setC("현장주소", e.target.value)} maxLength={200} className={INPUT} />
               </Field>
               <Field label="공사 완료일">
                 <input type="date" name="공사완료일" value={customer.공사완료일} onChange={(e) => setC("공사완료일", e.target.value)} className={INPUT} />

@@ -59,6 +59,7 @@ export type SiteFieldKey = (typeof SITE_FIELDS)[number]["key"];
 
 /** 화면에 컬럼명과 다르게 보여줄 이름 (현장 상세·새 현장 화면) */
 const FIELD_LABELS: Partial<Record<SiteFieldKey, string>> = {
+  시공비: "나비",
   한샘상품가액: "한샘",
   한샘상품물대: "한샘물대",
   한샘상품시공비: "한샘시공비",
@@ -84,7 +85,7 @@ export function contractSumError(v: Pick<SiteInput, "계약가" | (typeof CONTRA
   const sum = CONTRACT_PARTS.reduce((acc, k) => acc + (v[k] ?? 0), 0);
   const contract = v.계약가 ?? 0;
   if (sum === contract) return null;
-  return `시공비 + 한샘 + 홈씨씨 합계(${formatMoney(sum)})가 계약가(${formatMoney(contract)})와 ${formatMoney(Math.abs(sum - contract))}원 차이 납니다`;
+  return `나비 + 한샘 + 홈씨씨 합계(${formatMoney(sum)})가 계약가(${formatMoney(contract)})와 ${formatMoney(Math.abs(sum - contract))}원 차이 납니다`;
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   depositCategoryOf,
   depositToInput,
   EMPTY_VENDOR_INFO,
+  payerRuleOf,
   VENDOR_INFO_COLUMNS,
   receiptAllowed,
   VAT_DEFAULT,
@@ -66,6 +67,8 @@ export function DepositFormDialog({
 }) {
   const idp = useId();
   const isEdit = editing !== null && (!resubmit || resubmit.kind === "수정");
+  // 관리자 이상은 승인 요청 없이 바로 반영 (등록 → 승인, 수정 → 수정)
+  const direct = isAdmin && !resubmit;
   const [values, setValues] = useState<DepositInput>(() =>
     editing
       ? { ...depositToInput(editing), ...(fixedSalesName && { 영업사원: fixedSalesName }) }
@@ -128,11 +131,11 @@ export function DepositFormDialog({
     }));
   }
 
-  // 입금구분 선택에 따라 입출금이 정해진다 (한샘물대·한샘시공비 = 입금, 한샘 외 시공비 = 출금)
+  // 입금구분 선택에 따라 입출금이 정해진다 (한샘물대·한샘시공비 = 입금, 홈씨씨창호·한샘 외 시공비 = 화면에서 선택)
   const rule = (DEPOSIT_CATEGORIES as readonly string[]).includes(values.구분)
     ? CATEGORY_RULES[values.구분 as DepositCategory]
     : null;
-  const needsKind = rule?.입출금 === null; // 홈씨씨창호: 입금/출금을 직접 선택 (필수)
+  const needsKind = rule?.입출금 === null; // 홈씨씨창호·한샘 외 시공비: 입금/출금을 직접 선택 (필수)
   const kind = rule ? (rule.입출금 ?? values.입출금) : "";
   // 거래처 정보는 출금일 때만 보여준다 (입금이면 숨기고, 입력해 둔 값은 저장 시 서버에서 비움)
   const showVendor = vendorInfoAllowed(kind);
@@ -140,13 +143,14 @@ export function DepositFormDialog({
   const showReceipt = receiptAllowed(kind);
   const needsContent = rule?.입금내용 === null; // 한샘 외 시공비, 거래처환불
   const needsVendor = rule?.입금자 === "vendor"; // 거래처환불
-  // 저장될 입금자 미리보기 (실제 값은 서버에서 정함: 한샘물대·한샘시공비 = 현장정보 고객명, 그 외 = 나비지급)
-  const payerPreview = rule
-    ? rule.입금자 === "customer"
+  // 저장될 입금자 미리보기 (실제 값은 서버에서 정함: 고객 입금 = 현장정보 고객명, 한샘 외 시공비 출금 = 나비지급)
+  const payer = rule ? payerRuleOf(rule, kind) : null;
+  const payerPreview = payer
+    ? payer === "customer"
       ? matchedSite?.고객명 || values.고객명.trim() || "(고객명)"
-      : rule.입금자 === "vendor"
+      : payer === "vendor"
         ? values.거래처.trim() || "(거래처)"
-        : rule.입금자
+        : payer
     : null;
   // 화면 구분에 해당하지 않는 기존 행(예: 거래처환불입금)을 수정할 때 안내
   const legacy = editing && !depositCategoryOf(editing) ? `${editing.입금구분 ?? ""} / ${editing.입금내용 ?? ""}` : null;
@@ -163,8 +167,8 @@ export function DepositFormDialog({
       const res = resubmit
         ? await resubmitRequestAction(resubmit.requestId, values)
         : editing
-          ? await updateDepositAction(editing.id, values)
-          : await createDepositAction(values);
+          ? await updateDepositAction(editing.id, values, { direct })
+          : await createDepositAction(values, { direct });
       if (!res.ok) {
         setError(res.error);
         return;
@@ -173,6 +177,10 @@ export function DepositFormDialog({
       onDone(
         resubmit
           ? `${label} 다시 승인 요청했습니다`
+          : direct
+          ? isEdit
+            ? `${label} 수정했습니다`
+            : `${label}을 승인해 입금내역에 반영했습니다`
           : isEdit
           ? `${label} 수정을 요청했습니다. 승인 후 반영됩니다`
           : `${label}을 승인 요청했습니다. 승인 후 입금내역에 반영됩니다`,
@@ -200,7 +208,9 @@ export function DepositFormDialog({
             <p className="mt-0.5 text-xs text-zinc-500">
               {resubmit
                 ? "관리자 의견을 반영해 고친 뒤 다시 승인 요청하세요."
-                : isEdit
+                : direct
+                  ? "관리자 권한으로 승인 요청 없이 입금내역에 바로 반영됩니다."
+                  : isEdit
                   ? "수정 내용은 관리자 승인 후 입금내역에 반영됩니다."
                   : "등록한 내역은 관리자 승인 후 입금내역에 반영됩니다."}
             </p>
@@ -548,7 +558,17 @@ export function DepositFormDialog({
               disabled={pending}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
-              {pending ? "요청 중…" : resubmit ? "다시 승인 요청" : "승인 요청"}
+              {direct
+                ? pending
+                  ? "저장 중…"
+                  : isEdit
+                    ? "수정"
+                    : "승인"
+                : pending
+                  ? "요청 중…"
+                  : resubmit
+                    ? "다시 승인 요청"
+                    : "승인 요청"}
             </button>
           </div>
         </div>

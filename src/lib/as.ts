@@ -4,7 +4,7 @@ import "server-only";
 // RD는 담당 RD('영업사원')가 본인인 A/S만, 관리자 이상은 모든 A/S를 본다.
 // 열외 계정이 담당 RD이거나 등록한 A/S·이력은 열외가 아닌 사용자에게 보이지 않는다.
 
-import type { AsCase, AsHistory, AsMember, AsPhoto, AsSiteHit } from "@/lib/as-shared";
+import { toVendorInfo, type AsCase, type AsHistory, type AsMember, type AsPhoto, type AsSiteHit } from "@/lib/as-shared";
 import type { DataScope } from "@/lib/data-scope";
 import type { Exclusion } from "@/lib/excluded-users";
 import { fetchSites } from "@/lib/sites-data";
@@ -35,7 +35,12 @@ function minutes(v: string | null): string | null {
 
 function toCase(r: Record<string, unknown>): AsCase {
   const c = r as unknown as AsCase;
-  return { ...c, 방문예정일시: minutes(c.방문예정일시), 사진: Array.isArray(r.사진) ? (r.사진 as AsPhoto[]) : [] };
+  return {
+    ...c,
+    방문예정일시: minutes(c.방문예정일시),
+    협력업체정보: toVendorInfo(r.협력업체정보),
+    사진: Array.isArray(r.사진) ? (r.사진 as AsPhoto[]) : [],
+  };
 }
 
 /** 볼 수 없는 A/S인지: RD의 현장이 아닌 A/S, 열외 계정이 담당 RD이거나 등록한 A/S */

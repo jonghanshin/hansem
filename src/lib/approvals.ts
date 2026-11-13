@@ -83,11 +83,14 @@ export async function insertRequest(
   row: DepositRow,
   targetId: number | null,
   requester: number,
-): Promise<void> {
-  const { error } = await getSupabaseAdmin()
+): Promise<number> {
+  const { data, error } = await getSupabaseAdmin()
     .from(PENDING_DEPOSITS_TABLE)
-    .insert({ ...pickDepositRow(row), 요청구분: kind, 입금내역id: targetId, 요청자: requester, 승인여부: STATUS_PENDING });
+    .insert({ ...pickDepositRow(row), 요청구분: kind, 입금내역id: targetId, 요청자: requester, 승인여부: STATUS_PENDING })
+    .select("id")
+    .single();
   if (error) throw new Error(`승인 요청 등록 실패: ${error.message}`);
+  return (data as unknown as { id: number }).id;
 }
 
 /** 승인 대기 건수. requester를 주면 그 사람이 요청한 건만 센다 */

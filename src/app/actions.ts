@@ -44,6 +44,7 @@ import {
   depositCategoryOf,
   REFUND_TYPE,
   normalizeDepositInput,
+  payerRuleOf,
   pickDepositRow,
   REQUEST_COMMENT_MAX_LENGTH,
   sameDepositRow,
@@ -131,8 +132,9 @@ async function resolvePayer(row: DepositRow): Promise<string | null> {
   const category = depositCategoryOf(row);
   if (!category) return row.입금자;
   const rule = CATEGORY_RULES[category];
-  if (rule.입금자 === "vendor") return row.입금자;
-  if (rule.입금자 !== "customer") return rule.입금자;
+  const payer = payerRuleOf(rule, row.입출금); // 한샘 외 시공비 입금이면 고객명
+  if (payer === "vendor") return row.입금자;
+  if (payer !== "customer") return payer;
   if (row.현장번호) {
     const { data, error } = await getSupabaseAdmin()
       .from(SITES_TABLE)
@@ -148,14 +150,42 @@ async function resolvePayer(row: DepositRow): Promise<string | null> {
   return row.고객명;
 }
 
-export async function createDepositAction(raw: Partial<Record<keyof DepositInput, unknown>>): Promise<ActionResult<null>> {
+/**
+ * 관리자 이상의 바로 반영: 요청을 넣고 곧바로 승인 처리한다 (승인필요입금내역에는 '승인' 이력으로 남음).
+ * 반영에 실패하면 요청을 지워 승인 대기 목록에 남지 않게 한다.
+ */
+async function insertAndApprove(kind: RequestKind, row: DepositRow, targetId: number | null, uid: number) {
+  const requestId = await insertRequest(kind, row, targetId, uid);
+  let result: Awaited<ReturnType<typeof approveRequest>>;
+  try {
+    result = await approveRequest(requestId);
+  } catch (e) {
+    await cancelPendingRequest(requestId, uid).catch(() => {});
+    throw e;
+  }
+  if (!result) throw new Error("반영하지 못했습니다. 다시 시도해 주세요");
+  await resyncSitesFor([pickDepositRow(result.request), result.before]);
+}
+
+export async function createDepositAction(
+  raw: Partial<Record<keyof DepositInput, unknown>>,
+  options?: { direct?: boolean },
+): Promise<ActionResult<null>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
+  const direct = options?.direct === true;
+  if (direct && !auth.canApprove) return { ok: false, error: "승인 권한이 없습니다" };
   const normalized = normalizeDepositInput(raw ?? {}, { requireCashReceipt: true });
   if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
   try {
     const data = withScopedSalesName(normalized.data, auth.scope);
-    await insertRequest("등록", { ...data, 입금자: await resolvePayer(data) }, null, auth.uid);
+    const row = { ...data, 입금자: await resolvePayer(data) };
+    if (direct) {
+      await insertAndApprove("등록", row, null, auth.uid);
+      refresh();
+      return { ok: true, data: null };
+    }
+    await insertRequest("등록", row, null, auth.uid);
     await notifyDepositRequested(data, auth.uid);
     refresh(); // CEO 화면의 승인 대기 건수 갱신
     return { ok: true, data: null };
@@ -167,9 +197,12 @@ export async function createDepositAction(raw: Partial<Record<keyof DepositInput
 export async function updateDepositAction(
   id: number,
   raw: Partial<Record<keyof DepositInput, unknown>>,
+  options?: { direct?: boolean },
 ): Promise<ActionResult<null>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
+  const direct = options?.direct === true;
+  if (direct && !auth.canApprove) return { ok: false, error: "승인 권한이 없습니다" };
   const normalized = normalizeDepositInput(raw ?? {});
   if (normalized.errors.length) return { ok: false, error: normalized.errors.join("\n") };
   const input = withScopedSalesName(normalized.data, auth.scope);
@@ -186,6 +219,11 @@ export async function updateDepositAction(
       입금자: await resolvePayer(input),
     };
     if (sameDepositRow(target, data)) return { ok: false, error: "변경된 내용이 없습니다" };
+    if (direct) {
+      await insertAndApprove("수정", data, id, auth.uid);
+      refresh();
+      return { ok: true, data: null };
+    }
     await insertRequest("수정", data, id, auth.uid);
     await notifyDepositRequested(data, auth.uid);
     refresh();

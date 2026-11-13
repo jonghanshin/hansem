@@ -77,14 +77,29 @@ export function VendorPickerDialog({
   current,
   onSelect,
   onClose,
+  directText,
+  onDirectSubmit,
+  title = "거래처 정보 등록",
 }: {
   /** 이미 등록한 거래처 정보 (다시 열 때 그 공정·업체를 미리 선택) */
   current: VendorInfo;
   onSelect: (info: VendorInfo) => void;
   onClose: () => void;
+  /** '직접 등록' 메뉴의 처음 값 (텍스트 한 칸) */
+  directText?: string;
+  /** 있으면 '직접 등록' 메뉴를 보여준다: 공정별거래처 없이 텍스트 한 칸으로 입력 (A/S 협력업체) */
+  onDirectSubmit?: (text: string) => void;
+  title?: string;
 }) {
   const idp = useId();
   const [initial] = useState(current); // 처음 열 때의 값 (다시 불러오지 않도록 고정)
+  const directEntry = !!onDirectSubmit;
+  // 직접 등록한 텍스트가 있으면 직접 등록 화면으로 연다
+  const [mode, setMode] = useState<"pick" | "direct">(() =>
+    directEntry && directText?.trim() && !current.공정 ? "direct" : "pick",
+  );
+  const direct = mode === "direct";
+  const [text, setText] = useState(directText ?? "");
   const [data, setData] = useState<VendorPickerData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [process, setProcess] = useState(current.공정);
@@ -135,6 +150,12 @@ export function VendorPickerDialog({
     if (choice === MANUAL) setManual((m) => ({ ...m, [key]: value }));
   }
 
+  function switchMode(next: "pick" | "direct") {
+    if (next === mode) return;
+    setError(null);
+    setMode(next);
+  }
+
   function chooseRow(row: KnowledgeRow) {
     setError(null);
     setChoice(row.id);
@@ -155,6 +176,10 @@ export function VendorPickerDialog({
   }
 
   function confirm() {
+    if (direct) {
+      if (text.trim()) onDirectSubmit?.(text.trim());
+      return;
+    }
     if (!result) return;
     // 업체명은 선택 사항 (공정별거래처에 업체명 없이 등록된 행도 고를 수 있다)
     const trimmed = Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.trim()])) as VendorInfo;
@@ -182,10 +207,12 @@ export function VendorPickerDialog({
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
           <div>
             <h2 id={`${idp}-title`} className="text-lg font-semibold text-zinc-900">
-              거래처 정보 등록
+              {title}
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              공정을 고른 뒤 거래처를 선택하세요. 목록에 없으면 &lsquo;직접 입력&rsquo;을 고르세요.
+              {direct
+                ? "공정별거래처를 거치지 않고 협력업체를 자유롭게 적습니다."
+                : "공정을 고른 뒤 거래처를 선택하세요. 목록에 없으면 ‘직접 입력’을 고르세요."}
             </p>
           </div>
           <button
@@ -201,7 +228,43 @@ export function VendorPickerDialog({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          {loadError ? (
+          {directEntry && (
+            <div className="flex rounded-md border border-zinc-300 bg-white p-0.5" role="tablist" aria-label="등록 방법">
+              {(
+                [
+                  ["pick", "공정별거래처에서 선택"],
+                  ["direct", "직접 등록"],
+                ] as const
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === m}
+                  onClick={() => switchMode(m)}
+                  className={`flex-1 rounded px-3 py-1.5 text-sm font-medium ${
+                    mode === m ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {direct ? (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-zinc-700">협력업체</span>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={4}
+                maxLength={300}
+                autoFocus
+                placeholder="예: 박현도배 / 010-0000-0000"
+                className={`${INPUT} resize-y`}
+              />
+            </label>
+          ) : loadError ? (
             <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               {loadError}
             </p>
@@ -285,12 +348,14 @@ export function VendorPickerDialog({
                   </ul>
                 </fieldset>
               )}
+            </>
+          )}
 
-              {result && (
+              {!direct && !loadError && data && result && (
                 <section className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
                   <h3 className="mb-2 text-xs font-semibold text-zinc-600">
                     {choice === MANUAL ? "거래처 정보 직접 입력" : "선택한 거래처 정보"}
-                    <span className="ml-1 font-normal text-zinc-500">· 입금내역에 이 값으로 저장됩니다. 각 항목을 고칠 수 있습니다 (공정별거래처 원본은 바뀌지 않음)</span>
+                    <span className="ml-1 font-normal text-zinc-500">· 이 값으로 저장됩니다. 각 항목을 고칠 수 있습니다 (공정별거래처 원본은 바뀌지 않음)</span>
                   </h3>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {VENDOR_INFO_LABELS.map(({ key, label, multiline, tel, account }) => {
@@ -370,8 +435,6 @@ export function VendorPickerDialog({
                   </div>
                 </section>
               )}
-            </>
-          )}
         </div>
 
         <div className="border-t border-zinc-200 px-5 py-3">
@@ -391,10 +454,10 @@ export function VendorPickerDialog({
             <button
               type="button"
               onClick={confirm}
-              disabled={!result}
+              disabled={direct ? !text.trim() : !result}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
-              {choice === MANUAL ? "입력 완료" : "선택"}
+              {direct || choice === MANUAL ? "입력 완료" : "선택"}
             </button>
           </div>
         </div>

@@ -264,7 +264,7 @@ export const CATEGORY_RULES: Record<
   한샘물대: { 입출금: "입금", 입금구분: "한샘물대", 입금내용: "한샘물대", 입금자: "customer" },
   한샘시공비: { 입출금: "입금", 입금구분: "한샘시공비", 입금내용: "한샘시공비", 입금자: "customer" },
   홈씨씨창호: { 입출금: null, 입금구분: "홈씨씨창호", 입금내용: "홈씨씨창호", 입금자: "customer" },
-  "한샘 외 시공비": { 입출금: "출금", 입금구분: "한샘 외 시공비", 입금내용: null, 입금자: NABI_PAYER },
+  "한샘 외 시공비": { 입출금: null, 입금구분: "한샘 외 시공비", 입금내용: null, 입금자: NABI_PAYER },
   거래처환불: { 입출금: "입금", 입금구분: "거래처환불", 입금내용: null, 입금자: "vendor" },
   계약금1: { 입출금: "입금", 입금구분: "계약금1", 입금내용: "계약금1", 입금자: "customer" },
   계약금2: { 입출금: "입금", 입금구분: "계약금2", 입금내용: "계약금2", 입금자: "customer" },
@@ -276,6 +276,16 @@ export const CATEGORY_RULES: Record<
   잔금1: { 입출금: "입금", 입금구분: "잔금1", 입금내용: "잔금1", 입금자: "customer" },
   잔금2: { 입출금: "입금", 입금구분: "잔금2", 입금내용: "잔금2", 입금자: "customer" },
 };
+
+/**
+ * 입금자 규칙: 입금구분 규칙을 따르되, 한샘 외 시공비(나비지급)를 '입금'으로 등록하면 고객명으로 한다.
+ */
+export function payerRuleOf(
+  rule: (typeof CATEGORY_RULES)[DepositCategory],
+  kind: string | null | undefined,
+): (typeof CATEGORY_RULES)[DepositCategory]["입금자"] {
+  return rule.입금자 === NABI_PAYER && (kind ?? "").trim() === "입금" ? "customer" : rule.입금자;
+}
 
 /** 구분 문자열 → 규칙 (모르는 값이면 null) */
 export function categoryRule(category: string | null | undefined) {
@@ -307,7 +317,7 @@ export type DepositInput = {
   영업사원: string;
   /** 한샘물대 / 한샘시공비 / 한샘 외 시공비 / 거래처환불 */
   구분: string;
-  /** 입금 / 출금. 입금구분 규칙에 입출금이 정해져 있지 않을 때(홈씨씨창호)만 사용 (필수) */
+  /** 입금 / 출금. 입금구분 규칙에 입출금이 정해져 있지 않을 때(홈씨씨창호·한샘 외 시공비)만 사용 (필수) */
   입출금: string;
   입금액: string;
   날짜: string; // YYYY-MM-DDTHH:mm
@@ -365,7 +375,7 @@ export function normalizeDepositInput(
   if (!rule) errors.push(`입금구분은 ${DEPOSIT_CATEGORIES.join(", ")} 중에서 선택하세요`);
   const 입금내용 = rule ? (rule.입금내용 ?? text(raw.입금내용)) : null;
   if (rule && !rule.입금내용 && !입금내용) errors.push(`${구분}: 입금내용을 입력하세요`);
-  // 입출금: 규칙에 정해져 있으면 그 값, 아니면(홈씨씨창호) 화면에서 고른 입금/출금
+  // 입출금: 규칙에 정해져 있으면 그 값, 아니면(홈씨씨창호·한샘 외 시공비) 화면에서 고른 입금/출금
   const pickedKind = text(raw.입출금);
   const 입출금 = rule ? (rule.입출금 ?? pickedKind) : null;
   if (rule && rule.입출금 === null && !(DEPOSIT_KINDS as readonly (string | null)[]).includes(pickedKind)) {

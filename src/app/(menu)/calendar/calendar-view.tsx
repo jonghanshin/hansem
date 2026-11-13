@@ -52,10 +52,12 @@ type Props = {
   me: CalendarMember;
   members: CalendarMember[];
   selectedIds: number[];
+  /** 내 개인 일정 보이기 (팀원 선택에서 내 이름 체크) */
+  showMe: boolean;
   events: CalendarEvent[];
 };
 
-export function CalendarView({ ym, today, me, members, selectedIds, events }: Props) {
+export function CalendarView({ ym, today, me, members, selectedIds, showMe, events }: Props) {
   const router = useRouter();
   const [navigating, startNavigation] = useTransition();
   const [dialog, setDialog] = useState<DialogState>(null);
@@ -89,10 +91,11 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
   const sorted = useMemo(() => [...events].sort(compareEvents), [events]);
   const othersShown = selectedIds.length > 0;
 
-  const go = (nextYm: string, ids: number[]) => {
+  const go = (nextYm: string, ids: number[], withMe = showMe) => {
     const params = new URLSearchParams();
     if (nextYm !== today.slice(0, 7)) params.set("ym", nextYm);
     if (ids.length) params.set("users", ids.join(","));
+    if (!withMe) params.set("me", "0");
     const s = params.toString();
     startNavigation(() => router.push(s ? `/calendar?${s}` : "/calendar"));
   };
@@ -127,8 +130,9 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
             me={me}
             members={members}
             selectedIds={selectedIds}
+            showMe={showMe}
             colors={colors}
-            onChange={(ids) => go(ym, ids)}
+            onChange={(ids, withMe) => go(ym, ids, withMe)}
           />
           <button
             type="button"
@@ -146,7 +150,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
         {TEAM_CATEGORY_KEYS.map((c) => (
           <LegendChip key={c} color={TEAM_CATEGORIES[c]} label={`Team·${c}`} />
         ))}
-        <LegendChip color={MY_COLOR} label={`${me.name} (나)`} />
+        {showMe && <LegendChip color={MY_COLOR} label={`${me.name} (나)`} onRemove={() => go(ym, selectedIds, false)} />}
         {selectedIds.map((id) => (
           <LegendChip
             key={id}
@@ -207,6 +211,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
                               event={e}
                               color={eventColor(e)}
                               ownerName={!e.shared && othersShown && e.ownerId !== me.id ? nameOf(e.ownerId) : null}
+                              past={e.endDate < today}
                               onClick={() => tapDay(date, () => setDialog({ kind: "event", event: e }))}
                             />
                           </li>
@@ -240,6 +245,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, events }: Pr
           colorOf={eventColor}
           nameOf={nameOf}
           meId={me.id}
+          today={today}
           onSelect={(event) => setDialog({ kind: "event", event })}
           onAdd={() => setDialog({ kind: "new", date: dialog.date })}
           onClose={() => setDialog(null)}
@@ -268,11 +274,14 @@ function EventChip({
   event,
   color,
   ownerName,
+  past,
   onClick,
 }: {
   event: CalendarEvent;
   color: MemberColor;
   ownerName: string | null;
+  /** 종료일이 지난 일정: 흐릿하게 */
+  past: boolean;
   onClick: () => void;
 }) {
   const time = event.startTime && event.startDate === event.endDate ? event.startTime : null;
@@ -284,7 +293,9 @@ function EventChip({
         onClick();
       }}
       title={`${event.shared ? `[Team·${teamCategoryOf(event)}] ` : ""}${ownerName ? `[${ownerName}] ` : ""}${event.title} (${formatEventPeriod(event)})`}
-      className={`block w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[11px] leading-tight hover:brightness-95 sm:text-xs ${color.chip}`}
+      className={`block w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[11px] leading-tight hover:brightness-95 sm:text-xs ${color.chip} ${
+        past ? "opacity-40 hover:opacity-70" : ""
+      }`}
     >
       {event.shared && <SharedBadge className="mr-1" />}
       {time && <span className="mr-1 tabular-nums opacity-70">{time}</span>}
@@ -327,21 +338,25 @@ function MemberPicker({
   me,
   members,
   selectedIds,
+  showMe,
   colors,
   onChange,
 }: {
   me: CalendarMember;
   members: CalendarMember[];
   selectedIds: number[];
+  showMe: boolean;
   colors: Map<number, MemberColor>;
-  onChange: (ids: number[]) => void;
+  onChange: (ids: number[], withMe: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   // 체크할 때마다 이동하지 않고, 창을 닫을 때 한 번에 반영한다
   const [draft, setDraft] = useState<number[]>(selectedIds);
+  const [draftMe, setDraftMe] = useState(showMe);
   const ref = useRef<HTMLDivElement>(null);
 
+  const meVisible = !q.trim() || me.name.includes(q.trim());
   const others = members.filter(
     (m) =>
       m.id !== me.id &&
@@ -351,8 +366,9 @@ function MemberPicker({
   const close = () => {
     setOpen(false);
     setQ("");
-    const changed = draft.length !== selectedIds.length || draft.some((id) => !selectedIds.includes(id));
-    if (changed) onChange(draft);
+    const changed =
+      draftMe !== showMe || draft.length !== selectedIds.length || draft.some((id) => !selectedIds.includes(id));
+    if (changed) onChange(draft, draftMe);
   };
 
   useEffect(() => {
@@ -371,11 +387,12 @@ function MemberPicker({
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => (open ? close() : (setDraft(selectedIds), setOpen(true)))}
+        onClick={() => (open ? close() : (setDraft(selectedIds), setDraftMe(showMe), setOpen(true)))}
         aria-expanded={open}
         className={BUTTON}
       >
-        팀원 선택{selectedIds.length > 0 && <span className="ml-1 text-blue-600">({selectedIds.length})</span>} ▾
+        팀원 선택{selectedIds.length > 0 && <span className="ml-1 text-blue-600">({selectedIds.length})</span>}
+        {!showMe && <span className="ml-1 text-xs text-zinc-400">(나 숨김)</span>} ▾
       </button>
       {open && (
         <div
@@ -393,6 +410,20 @@ function MemberPicker({
             />
           </div>
           <ul className="max-h-72 overflow-auto py-1">
+            {meVisible && (
+              <li className="border-b border-zinc-100">
+                <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">
+                  <input
+                    type="checkbox"
+                    checked={draftMe}
+                    onChange={() => setDraftMe((v) => !v)}
+                    className="size-4 accent-blue-600"
+                  />
+                  <span className={`size-2.5 rounded-full ${MY_COLOR.dot}`} aria-hidden />
+                  {me.name} <span className="text-xs text-zinc-500">(나)</span>
+                </label>
+              </li>
+            )}
             {others.map((m) => (
               <li key={m.id}>
                 <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">
@@ -407,10 +438,17 @@ function MemberPicker({
                 </label>
               </li>
             ))}
-            {others.length === 0 && <li className="px-3 py-3 text-center text-sm text-zinc-500">팀원이 없습니다</li>}
+            {others.length === 0 && !meVisible && <li className="px-3 py-3 text-center text-sm text-zinc-500">팀원이 없습니다</li>}
           </ul>
           <div className="flex items-center justify-between border-t border-zinc-100 px-3 py-2">
-            <button type="button" onClick={() => setDraft([])} className="text-xs text-zinc-500 hover:text-zinc-800 hover:underline">
+            <button
+              type="button"
+              onClick={() => {
+                setDraft([]);
+                setDraftMe(false);
+              }}
+              className="text-xs text-zinc-500 hover:text-zinc-800 hover:underline"
+            >
               모두 해제
             </button>
             <button type="button" onClick={close} className="rounded-md bg-zinc-900 px-3 py-1 text-xs font-semibold text-white hover:bg-zinc-700">
@@ -451,6 +489,7 @@ function DayDialog({
   colorOf,
   nameOf,
   meId,
+  today,
   onSelect,
   onAdd,
   onClose,
@@ -460,6 +499,7 @@ function DayDialog({
   colorOf: (e: CalendarEvent) => MemberColor;
   nameOf: (id: number) => string;
   meId: number;
+  today: string;
   onSelect: (e: CalendarEvent) => void;
   onAdd: () => void;
   onClose: () => void;
@@ -476,7 +516,9 @@ function DayDialog({
             <button
               type="button"
               onClick={() => onSelect(e)}
-              className={`block w-full rounded border-l-4 px-3 py-2 text-left hover:brightness-95 ${colorOf(e).chip}`}
+              className={`block w-full rounded border-l-4 px-3 py-2 text-left hover:brightness-95 ${colorOf(e).chip} ${
+                e.endDate < today ? "opacity-40 hover:opacity-70" : ""
+              }`}
             >
               <span className="flex flex-wrap items-center gap-x-1.5 text-xs opacity-80">
                 {e.shared && <SharedBadge category={teamCategoryOf(e)} />}

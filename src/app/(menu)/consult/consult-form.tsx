@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState, useTransition } from "react";
 
+import { AddressInput } from "@/app/address-input";
 import { createConsultAction, deleteConsultAction, updateConsultAction } from "@/app/consult-actions";
 import {
   AMOUNT_KINDS,
@@ -403,7 +404,7 @@ function BasicFields({
           <input name="매장지점" maxLength={100} defaultValue={c?.매장지점} className={INPUT} />
         </Field>
         <Field label="현장명·주소">
-          <input
+          <AddressInput
             name="현장주소"
             maxLength={200}
             defaultValue={c?.현장주소}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { createSiteAction, listDepositsAction, syncSiteTotalsAction, updateSiteAction } from "@/app/actions";
+import { AddressInput } from "@/app/address-input";
 import { DepositList } from "@/app/deposit-list";
 import type { Deposit } from "@/lib/deposits";
 import {
@@ -387,6 +388,23 @@ export function SiteForm({
                 const autoSales = isNew && AUTO_SALES_KEYS.has(key);
                 const locked = autoSales || (key === "영업사원" && !!fixedSalesName);
                 const required = (isNew ? REQUIRED_NEW : REQUIRED).has(key);
+                if (key === "현장주소") {
+                  return (
+                    <label key={key} className="col-span-2">
+                      <span className="mb-1 block text-xs font-medium text-zinc-700">
+                        {fieldLabel(key)}
+                        {required && <span className="ml-0.5 text-red-600">*</span>}
+                      </span>
+                      <AddressInput
+                        name={key}
+                        value={values[key]}
+                        onChange={(e) => setField(key, e.target.value)}
+                        required={required}
+                        className="w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </label>
+                  );
+                }
                 return (
                   <label key={key} className={wide ? "col-span-2" : undefined}>
                     <span className="mb-1 block text-xs font-medium text-zinc-700">
@@ -610,7 +628,7 @@ function ContractSumHint({ values }: { values: FormValues }) {
   const diff = sum - (parts.계약가 ?? 0);
   return (
     <p className={`mt-2 text-xs ${diff === 0 ? "text-emerald-700" : "text-red-600"}`}>
-      시공비 + 한샘 + 홈씨씨 = <span className="font-semibold tabular-nums">{formatMoney(sum)}</span>
+      나비 + 한샘 + 홈씨씨 = <span className="font-semibold tabular-nums">{formatMoney(sum)}</span>
       {diff === 0
         ? " (계약가와 일치)"
         : ` · 계약가보다 ${formatMoney(Math.abs(diff))}원 ${diff > 0 ? "많습니다" : "적습니다"} (저장하려면 맞춰야 합니다)`}

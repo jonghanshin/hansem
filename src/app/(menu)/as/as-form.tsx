@@ -3,8 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 
+import { VendorInfoSummary, VendorPickerDialog } from "@/app/(menu)/deposits/vendor-picker-dialog";
+import { AddressInput } from "@/app/address-input";
 import { deleteAsAction, updateAsAction } from "@/app/as-actions";
+import { EMPTY_VENDOR_INFO, type VendorInfo } from "@/lib/deposits";
 import {
   AS_BILLING_STATES,
   AS_CHARGES,
@@ -195,7 +199,7 @@ export function AsForm({ c, members, today, related, history, historyCount, phot
               </span>
             </Field>
             <Field label="현장명·주소" wide>
-              <input name="현장주소" defaultValue={c.현장주소} maxLength={200} className={INPUT} />
+              <AddressInput name="현장주소" defaultValue={c.현장주소} maxLength={200} className={INPUT} />
             </Field>
             <Field label="공사 완료일">
               <input type="date" name="공사완료일" defaultValue={c.공사완료일 ?? ""} className={INPUT} />
@@ -209,9 +213,14 @@ export function AsForm({ c, members, today, related, history, historyCount, phot
             <Field label="담당자">
               <MemberSelect name="담당자" value={c.담당자} members={members} />
             </Field>
-            <Field label="처리 협력업체" hint="이름 / 연락처" wide>
-              <textarea name="협력업체" defaultValue={c.협력업체} rows={2} maxLength={300} className={INPUT} placeholder="예: 박현도배 / 010-0000-0000" />
-            </Field>
+            <VendorField
+              c={c}
+              wide
+              onPicked={() => {
+                setDirty(true);
+                setSaved(false);
+              }}
+            />
           </Grid>
           <Chips label="접수 경로" name="접수경로" options={AS_ROUTES} value={c.접수경로} allowEmpty />
           <p className="text-xs text-zinc-500">담당 RD: {c.영업사원 ?? "미지정"}</p>
@@ -432,9 +441,7 @@ function StepDialog({ c, step, members, today, onClose }: { c: AsCase; step: Ste
                 <Field label="방문 예정일시" required>
                   <input type="datetime-local" name="방문예정일시" defaultValue={c.방문예정일시 ?? `${today}T10:00`} className={INPUT} autoFocus />
                 </Field>
-                <Field label="처리 협력업체" hint="이름 / 연락처">
-                  <textarea name="협력업체" defaultValue={c.협력업체} rows={2} maxLength={300} className={INPUT} />
-                </Field>
+                <VendorField c={c} />
                 <Field label="처리 기한">
                   <input type="date" name="처리기한" defaultValue={c.처리기한 ?? ""} className={INPUT} />
                 </Field>
@@ -479,6 +486,94 @@ function StepDialog({ c, step, members, today, onClose }: { c: AsCase; step: Ste
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ---------- 처리 협력업체 ----------
+
+/**
+ * 처리 협력업체: 입금 등록의 '거래처 정보 등록'과 같은 팝업(공정 → 공정별거래처 선택 또는 직접 입력)으로 고른다.
+ * 고르거나 지운 경우에만 협력업체정보(JSON)를 보내고, 요약 텍스트(협력업체)는 서버에서 만든다.
+ */
+function VendorField({ c, wide, onPicked }: { c: AsCase; wide?: boolean; onPicked?: () => void }) {
+  const [info, setInfo] = useState<VendorInfo | null>(c.협력업체정보 ?? null);
+  // 직접 등록한 텍스트 (거래처 정보 없이 적은 협력업체. 예전에 적어 둔 값 포함)
+  const [text, setText] = useState(c.협력업체정보 ? "" : c.협력업체.trim());
+  const [touched, setTouched] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  function change(next: VendorInfo | null, nextText = "") {
+    setInfo(next);
+    setText(nextText);
+    setTouched(true);
+    onPicked?.();
+  }
+
+  return (
+    <div className={`min-w-0 ${wide ? "sm:col-span-2" : ""}`}>
+      <span className="mb-1 block text-xs font-medium text-zinc-700">
+        처리 협력업체
+        <span className="ml-1.5 font-normal text-zinc-400">공정별거래처에서 선택 또는 직접 입력</span>
+      </span>
+      {touched && (
+        <>
+          <input type="hidden" name="협력업체정보" value={info ? JSON.stringify(info) : ""} />
+          <input type="hidden" name="협력업체" value={text} />
+        </>
+      )}
+      {text && !info ? (
+        <div className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm">
+          <p className="min-w-0 flex-1 whitespace-pre-line break-words text-zinc-800">
+            <span className="mr-1.5 rounded bg-zinc-200 px-1.5 py-0.5 text-xs text-zinc-600">직접 등록</span>
+            {text}
+          </p>
+          <button type="button" onClick={() => setOpen(true)} className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-100">
+            변경
+          </button>
+          <button type="button" onClick={() => change(null)} className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50">
+            지우기
+          </button>
+        </div>
+      ) : info ? (
+        <div className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm">
+          <div className="min-w-0 flex-1">
+            <VendorInfoSummary info={info} />
+          </div>
+          <button type="button" onClick={() => setOpen(true)} className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-100">
+            변경
+          </button>
+          <button type="button" onClick={() => change(null)} className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50">
+            지우기
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-full rounded-lg border border-dashed border-zinc-300 px-3 py-3 text-sm font-medium text-zinc-600 hover:bg-zinc-50"
+        >
+          + 협력업체 정보 등록 <span className="font-normal opacity-80">(공정별거래처에서 선택하거나 직접 등록)</span>
+        </button>
+      )}
+      {open &&
+        createPortal(
+          <VendorPickerDialog
+            current={info ?? EMPTY_VENDOR_INFO}
+            title="협력업체 정보 등록"
+            directText={text}
+            onDirectSubmit={(t) => {
+              change(null, t);
+              setOpen(false);
+            }}
+            onClose={() => setOpen(false)}
+            onSelect={(next) => {
+              change(next);
+              setOpen(false);
+            }}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

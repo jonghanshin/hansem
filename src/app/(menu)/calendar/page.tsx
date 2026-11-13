@@ -33,7 +33,9 @@ async function CalendarContent({ searchParams }: { searchParams: SearchParams })
   const today = todayInKorea();
   const ym = parseYearMonth(one(sp.ym)) ?? today.slice(0, 7);
 
-  const result = await loadCalendar(session.uid, ym, one(sp.users)).then(
+  // ?me=0 → 내 개인 일정 숨기기 (기본은 보임)
+  const showMe = one(sp.me) !== "0";
+  const result = await loadCalendar(session.uid, ym, one(sp.users), showMe).then(
     (data) => ({ ok: true as const, ...data }),
     (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }),
   );
@@ -53,12 +55,13 @@ async function CalendarContent({ searchParams }: { searchParams: SearchParams })
       me={{ id: session.uid, name: session.name }}
       members={result.members}
       selectedIds={result.selectedIds}
+      showMe={showMe}
       events={result.events}
     />
   );
 }
 
-async function loadCalendar(uid: number, ym: string, usersParam: string) {
+async function loadCalendar(uid: number, ym: string, usersParam: string, showMe: boolean) {
   // 열외 계정은 팀원 목록·일정에서 뺀다 (본인이 열외면 모두 보인다)
   const excludedIds = (await exclusionFor(uid)).ids;
   const members = await fetchCalendarMembers(excludedIds);
@@ -74,6 +77,6 @@ async function loadCalendar(uid: number, ym: string, usersParam: string) {
   ].slice(0, MAX_SELECTED_MEMBERS);
 
   const { from, to } = monthRange(ym);
-  const events = await fetchEvents([uid, ...selectedIds], from, to, excludedIds);
+  const events = await fetchEvents(showMe ? [uid, ...selectedIds] : selectedIds, from, to, excludedIds);
   return { members, selectedIds, events };
 }

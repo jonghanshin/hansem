@@ -37,7 +37,9 @@ import {
   type AsPhoto,
   type AsPhotoKind,
   joinTrades,
+  toVendorInfo,
   tradesOf,
+  vendorSummary,
   type AsSiteHit,
 } from "@/lib/as-shared";
 import { authorizeAction } from "@/lib/auth";
@@ -145,6 +147,23 @@ function parseFields(form: FormData): Partial<AsInput> {
         out[f.key] = integer(form, f.key);
         break;
     }
+  }
+  // 처리 협력업체: 거래처 정보 팝업에서 고른 값(JSON). 요약 텍스트는 서버에서 만든다
+  if (form.has("협력업체정보")) {
+    let raw: unknown = null;
+    const s = String(form.get("협력업체정보") ?? "").trim();
+    if (s) {
+      try {
+        raw = JSON.parse(s);
+      } catch {
+        throw new FormError("협력업체 정보가 올바르지 않습니다");
+      }
+    }
+    const info = toVendorInfo(raw);
+    out.협력업체정보 = info;
+    // 거래처 정보가 없으면 직접 등록한 텍스트(협력업체)를 그대로 둔다
+    if (info) out.협력업체 = vendorSummary(info);
+    else out.협력업체 ??= "";
   }
   // 공종: 여러 개 선택 (체크 칩). 상세 화면에서는 "공종표시"가 있을 때만 공종을 바꾼다
   if (form.has("공종표시")) out.공종 = joinTrades(form.getAll("공종").map(String));

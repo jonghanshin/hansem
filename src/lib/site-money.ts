@@ -11,7 +11,7 @@ export type ContractAmounts = Pick<SiteInput, "계약가" | "시공비" | "한�
  */
 export const MONEY_GROUPS = [
   {
-    label: "시공비",
+    label: "나비",
     key: "시공비",
     categories: [
       "계약금1", "계약금2", "착수금1", "착수금2", "중도금1", "중도금2", "중도금3", "잔금1", "잔금2",
@@ -23,7 +23,7 @@ export const MONEY_GROUPS = [
 ] as const satisfies readonly { label: string; key: keyof ContractAmounts; categories: readonly DepositCategory[] }[];
 
 export const MONEY_GROUP_NOTE =
-  "시공비 = 계약금·착수금·중도금·잔금(입금), 한샘 외 시공비(출금) · 한샘 = 한샘물대·한샘시공비 · 홈씨씨 = 홈씨씨창호. 거래처환불은 제외.";
+  "나비 = 계약금·착수금·중도금·잔금(입금), 한샘 외 시공비(출금) · 한샘 = 한샘물대·한샘시공비 · 홈씨씨 = 홈씨씨창호. 거래처환불은 제외.";
 
 export type MoneyGroupSummary = {
   label: string;

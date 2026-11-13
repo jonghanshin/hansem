@@ -19,7 +19,8 @@ create table if not exists public."AS접수" (
   "접수일"        date        not null default current_date,
   "접수경로"      text        not null default '',
   "담당자"        text        not null default '',      -- A/S 담당자 이름 (기본: 관리자 역할)
-  "협력업체"      text        not null default '',      -- 처리 협력업체 (이름 / 연락처)
+  "협력업체"      text        not null default '',      -- 처리 협력업체 요약 (업체 / 담당자 / 연락처)
+  "협력업체정보"  jsonb,                                -- 처리 협력업체 거래처 정보 (입금 거래처 정보와 같은 항목)
 
   -- 2. 접수 증상 및 확인 내용
   "공종"          text        not null default '',
