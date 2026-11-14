@@ -8,7 +8,7 @@ import "server-only";
 // 일정은 개인 일정이라 본인과, 캘린더에서 그 사람을 선택한 팀원에게 보인다.
 
 import { EVENT_KIND_PERSONAL, EVENT_TITLE_MAX } from "@/lib/calendar-shared";
-import { isActiveStage, type Consult } from "@/lib/consult-shared";
+import { isActiveStage, isClosedStage, type Consult } from "@/lib/consult-shared";
 import { fetchAuthDirectory } from "@/lib/auth-directory";
 import { CALENDAR_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
@@ -55,7 +55,7 @@ export async function syncConsultEvents(c: Consult): Promise<string | null> {
       });
     };
 
-    const closed = c.진행단계 === "보류" || c.진행단계 === "계약취소";
+    const closed = isClosedStage(c.진행단계);
     if (isActiveStage(c.진행단계) && c.다음연락일) add(rd, `📞 ${c.고객명} 연락`, "amber", c.다음연락일, false);
     if (!closed && c.다음미팅일시 && c.미팅상태 !== "취소") {
       add(rd, `🤝 ${c.고객명} 미팅${c.미팅장소 ? ` (${c.미팅장소})` : ""}`, "cyan", c.다음미팅일시, true);

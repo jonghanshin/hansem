@@ -34,6 +34,7 @@ import {
   AS_STATES,
   AS_TEXT_MAX,
   AS_URGENCIES,
+  type AsCase,
   type AsPhoto,
   type AsPhotoKind,
   joinTrades,
@@ -43,6 +44,7 @@ import {
   type AsSiteHit,
 } from "@/lib/as-shared";
 import { authorizeAction } from "@/lib/auth";
+import { createNotices, scheduleChange } from "@/lib/notices";
 import { isBlockedFile } from "@/lib/board-shared";
 import type { Exclusion } from "@/lib/excluded-users";
 import { choice, date, dateTime, FormError, integer, messageOf, text, todayKorea } from "@/lib/form-fields";
@@ -305,11 +307,44 @@ export async function createAsAction(form: FormData): Promise<ActionResult<{ ids
       list.map((s) => ({ ...base, ...s })),
       auth.uid,
     );
+    if (base.담당자 && ids.length) {
+      const count = ids.length > 1 ? ` (증상 ${ids.length}건)` : "";
+      const due = scheduleChange("처리기한", null, base.처리기한);
+      await createNotices(
+        "A/S",
+        ids[0],
+        [{ assignee: { name: base.담당자 }, message: `${base.고객명} A/S 접수${count}의 담당자로 지정되었습니다.${due ? ` (${due})` : ""}` }],
+        { uid: auth.uid, name: auth.name },
+      );
+    }
     refresh();
     return { ok: true, data: { ids } };
   } catch (e) {
     return formFail(e);
   }
+}
+
+/**
+ * 담당 알림: 담당자가 새로 지정되면 지정 알림(지금 잡힌 방문·처리기한 포함),
+ * 담당자가 그대로면 방문 예정일시·처리기한이 등록·변경·삭제될 때 일정 알림
+ */
+async function notifyAsChanges(id: number, before: AsCase, input: Partial<AsInput>, actor: { uid: number; name: string }) {
+  const after = { ...before, ...input };
+  const who = after.담당자.trim();
+  if (!who) return;
+  const title = `${after.고객명} A/S(${before.접수번호})`;
+  const assigned = who !== before.담당자.trim();
+  const parts = (
+    assigned
+      ? [scheduleChange("방문", null, after.방문예정일시), scheduleChange("처리기한", null, after.처리기한)]
+      : [scheduleChange("방문", before.방문예정일시, after.방문예정일시), scheduleChange("처리기한", before.처리기한, after.처리기한)]
+  ).filter((p): p is string => p !== null);
+  const message = assigned
+    ? `${title}의 담당자로 지정되었습니다.${parts.length ? ` (${parts.join(", ")})` : ""}`
+    : parts.length
+      ? `${title} 일정: ${parts.join(", ")}`
+      : null;
+  if (message) await createNotices("A/S", id, [{ assignee: { name: who }, message }], actor);
 }
 
 /** A/S 수정: 폼에 들어 있는 항목만 바꾼다 (상세 화면 저장, 진행 버튼 창) */
@@ -318,10 +353,12 @@ export async function updateAsAction(id: number, form: FormData): Promise<Action
   if (!auth.ok) return auth;
   if (!validId(id)) return { ok: false, error: "잘못된 접수 번호입니다" };
   try {
-    if (!(await fetchAsCase(id, viewOf(auth)))) return { ok: false, error: "A/S를 찾을 수 없습니다 (삭제되었거나 볼 권한이 없습니다)" };
+    const before = await fetchAsCase(id, viewOf(auth));
+    if (!before) return { ok: false, error: "A/S를 찾을 수 없습니다 (삭제되었거나 볼 권한이 없습니다)" };
     const input = parseFields(form);
     if (Object.keys(input).length === 0) return { ok: true, data: null };
     await updateAsCase(id, input);
+    await notifyAsChanges(id, before, input, { uid: auth.uid, name: auth.name });
     refresh();
     return { ok: true, data: null };
   } catch (e) {

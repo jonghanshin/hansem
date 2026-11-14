@@ -25,6 +25,8 @@ import {
   CONSULT_KINDS,
   CONTACT_METHODS,
   CONTACT_STATES,
+  formatDate,
+  isClosedStage,
   ESTIMATE_INCLUDES,
   LONG_TEXT_MAX,
   PRIORITIES,
@@ -39,6 +41,7 @@ import {
   type WorkItem,
 } from "@/lib/consult-shared";
 import { syncConsultEvents } from "@/lib/consult-calendar";
+import { createNotices, scheduleChange, type NoticeDraft } from "@/lib/notices";
 import type { Exclusion } from "@/lib/excluded-users";
 import { normalizeSiteInput, type ActionResult } from "@/lib/sites";
 import { fetchExistingSiteNumbers } from "@/lib/sites-data";
@@ -60,6 +63,70 @@ const ALL_VIEW: ConsultView = { ids: [], names: [], salesName: null };
 async function syncCalendar(id: number): Promise<string | null> {
   const fresh = await fetchConsult(id, ALL_VIEW);
   return fresh ? syncConsultEvents(fresh) : null;
+}
+
+type NoticeFields = Pick<
+  ConsultInput,
+  "고객명" | "진행단계" | "영업사원" | "영업사원ID" | "할일" | "다음연락일" | "다음미팅일시" | "실측일시"
+>;
+
+/**
+ * 담당 알림 (before가 null이면 신규 등록):
+ * - 담당 RD·할 일 담당자로 새로 지정된 사람 → 지정 알림 (지금 잡힌 일정도 함께)
+ * - 담당이 그대로인 사람 → 맡은 일정(연락·미팅·실측·할 일 예정일)이 등록·변경·삭제되면 일정 알림
+ * 종료된 상담(보류·계약취소·상담종료)은 일정 알림을 보내지 않는다.
+ */
+async function notifyConsultChanges(id: number, before: NoticeFields | null, after: NoticeFields, actor: { uid: number; name: string }) {
+  const name = after.고객명;
+  const closed = isClosedStage(after.진행단계);
+  const drafts: NoticeDraft[] = [];
+
+  // 담당 RD: 연락·미팅·실측과 담당자 없는 할 일
+  const rdKey = (c: NoticeFields | null) => c?.영업사원ID ?? c?.영업사원 ?? "";
+  const rd = { sid: after.영업사원ID, name: after.영업사원 };
+  const rdAssigned = rdKey(after) !== "" && (before === null || rdKey(before) !== rdKey(after));
+  const rdParts: string[] = [];
+  const pushRd = (label: string, b: string | null | undefined, a: string | null | undefined) => {
+    // 새로 지정된 RD에게는 지금 잡힌 일정만, 그대로인 RD에게는 바뀐 일정만
+    const change = rdAssigned ? (a ? scheduleChange(label, null, a) : null) : scheduleChange(label, b, a);
+    if (change) rdParts.push(change);
+  };
+  if (!closed) {
+    pushRd("연락일", before?.다음연락일, after.다음연락일);
+    pushRd("미팅", before?.다음미팅일시, after.다음미팅일시);
+    pushRd("실측", before?.실측일시, after.실측일시);
+  }
+
+  // 할 일: 내용으로 이전 항목을 찾는다
+  const prevTodo = new Map((before?.할일 ?? []).map((t) => [t.내용.trim(), t] as const));
+  const hadAssignee = new Set((before?.할일 ?? []).map((t) => t.담당자.trim()).filter(Boolean));
+  const todoParts = new Map<string, string[]>(); // 담당자 이름 → 일정 변경
+  for (const t of after.할일) {
+    const who = t.담당자.trim();
+    const prev = prevTodo.get(t.내용.trim());
+    const done = t.상태 === "완료" || t.상태 === "보류";
+    if (who && !hadAssignee.has(who)) {
+      const when = t.예정일 && !closed && !done ? ` (${formatDate(t.예정일)})` : "";
+      drafts.push({ assignee: { name: who }, message: `${name} 고객상담의 할 일 담당자로 지정되었습니다: ${t.내용}${when}` });
+      continue;
+    }
+    if (closed || done) continue;
+    const change = scheduleChange(`할 일 '${t.내용}'`, prev?.예정일, t.예정일);
+    if (!change) continue;
+    if (who) todoParts.set(who, [...(todoParts.get(who) ?? []), change]);
+    else rdParts.push(change);
+  }
+
+  if (rdAssigned) {
+    const extra = rdParts.length ? ` (${rdParts.join(", ")})` : "";
+    drafts.push({ assignee: rd, message: `${name} 고객상담의 담당 RD로 지정되었습니다.${extra}` });
+  } else if (rdParts.length && rdKey(after)) {
+    drafts.push({ assignee: rd, message: `${name} 고객상담 일정: ${rdParts.join(", ")}` });
+  }
+  for (const [who, parts] of todoParts) {
+    drafts.push({ assignee: { name: who }, message: `${name} 고객상담 일정: ${parts.join(", ")}` });
+  }
+  await createNotices("고객상담", id, drafts, actor);
 }
 
 function fail(e: unknown): { ok: false; error: string } {
@@ -229,6 +296,7 @@ export async function createConsultAction(form: FormData): Promise<ActionResult<
     const input = await parseConsultForm(form, viewOf(auth), auth.sid);
     const id = await insertConsult(input, auth.uid);
     const warning = await syncCalendar(id);
+    await notifyConsultChanges(id, null, input, { uid: auth.uid, name: auth.name });
     refresh();
     return { ok: true, data: { id, warning } };
   } catch (e) {
@@ -246,10 +314,12 @@ export async function updateConsultAction(id: number, form: FormData): Promise<A
   if (!auth.canUseConsult) return { ok: false, error: "고객상담을 사용할 권한이 없습니다" };
   if (!validId(id)) return { ok: false, error: "잘못된 상담 번호입니다" };
   try {
-    if (!(await fetchConsult(id, viewOf(auth)))) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
+    const before = await fetchConsult(id, viewOf(auth));
+    if (!before) return { ok: false, error: "상담을 찾을 수 없습니다 (이미 삭제되었을 수 있습니다)" };
     const input = await parseConsultForm(form, viewOf(auth), auth.sid);
     await updateConsult(id, input);
     const warning = await syncCalendar(id);
+    await notifyConsultChanges(id, before, input, { uid: auth.uid, name: auth.name });
     refresh();
     return { ok: true, data: { id, warning } };
   } catch (e) {
@@ -306,6 +376,7 @@ export async function addConsultRecordAction(consultId: number, form: FormData):
     });
     // 다음 연락일이 바뀌면 캘린더의 연락 일정도 옮긴다
     const warning = 다음연락일 && 다음연락일 !== consult.다음연락일 ? await syncCalendar(consultId) : null;
+    if (다음연락일) await notifyConsultChanges(consultId, consult, { ...consult, 다음연락일 }, { uid: auth.uid, name: auth.name });
     refresh();
     return { ok: true, data: { warning } };
   } catch (e) {

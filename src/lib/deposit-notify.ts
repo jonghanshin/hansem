@@ -1,9 +1,9 @@
 import "server-only";
 
-// 입금 승인 요청·승인 완료·확인사항 요청과 답변을 카카오 알림톡으로 알린다.
+// 입금 승인 요청·확인사항 요청과 답변을 카카오 알림톡으로 알린다.
 // 알림은 부가 기능이므로 실패해도 입금 처리에 영향을 주지 않는다 (오류는 서버 로그에만 남긴다).
 
-import { APPROVER_ROLES, PRIVATE_SITE_NUMBERS, RESTRICTED_ROLE, SUPER_ADMIN_ROLE } from "@/lib/data-scope";
+import { APPROVER_ROLES, PRIVATE_SITE_NUMBERS, SUPER_ADMIN_ROLE } from "@/lib/data-scope";
 import type { DepositRow } from "@/lib/deposits";
 import { KAKAO_TEMPLATES, sendAlimtalk } from "@/lib/kakao";
 import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
@@ -16,7 +16,7 @@ async function fetchAccounts(): Promise<Account[]> {
   return data as unknown as Account[];
 }
 
-type NotifyStatus = "승인요청" | "승인" | "반려" | "확인사항요청" | "확인사항답변";
+type NotifyStatus = "승인요청" | "확인사항요청" | "확인사항답변";
 
 /** 템플릿의 '구분'(#{입금구분}) 자리에 고객명·입금구분·진행 상태를 함께 넣어 보낸다 (예: 홍길동 계약금1 승인요청) */
 async function sendToAll(row: DepositRow, recipients: Account[], status: NotifyStatus) {
@@ -83,17 +83,5 @@ export async function notifyCommentToRequester(row: DepositRow, requesterId: num
     await sendToAll(row, recipients, "확인사항요청");
   } catch (e) {
     console.error("[알림톡:확인사항요청]", e);
-  }
-}
-
-/** 승인·반려 결과: 해당 입금의 영업사원(RD)에게 알린다 */
-export async function notifyDepositDecision(row: DepositRow, status: "승인" | "반려"): Promise<void> {
-  try {
-    const name = row.영업사원?.trim();
-    if (!name) return;
-    const recipients = (await fetchAccounts()).filter((a) => a.역할?.trim() === RESTRICTED_ROLE && a.이름?.trim() === name);
-    await sendToAll(row, recipients, status);
-  } catch (e) {
-    console.error(`[알림톡:${status}]`, e);
   }
 }

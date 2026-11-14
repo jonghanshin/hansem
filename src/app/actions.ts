@@ -22,7 +22,6 @@ import { applyScope, PRIVATE_SITE_NUMBERS, withScopedSalesName, type DataScope }
 import {
   notifyCommentToApprovers,
   notifyCommentToRequester,
-  notifyDepositDecision,
   notifyDepositRequested,
 } from "@/lib/deposit-notify";
 import { fetchComputedSources, syncSiteTotals } from "@/lib/site-totals";
@@ -263,7 +262,6 @@ export async function approveRequestAction(requestId: number): Promise<ActionRes
     const result = await approveRequest(requestId);
     if (!result) return { ok: false, error: "이미 처리되었거나 찾을 수 없는 요청입니다" };
     await resyncSitesFor([pickDepositRow(result.request), result.before]);
-    await notifyDepositDecision(pickDepositRow(result.request), "승인");
     refresh(); // 승인 대기 건수·목록 갱신
     return { ok: true, data: { kind: result.request.요청구분 } };
   } catch (e) {
@@ -286,7 +284,6 @@ export async function rejectRequestAction(requestId: number, comment: unknown): 
   try {
     const rejected = await rejectRequest(requestId, text);
     if (!rejected) return { ok: false, error: "이미 처리되었거나 찾을 수 없는 요청입니다" };
-    await notifyDepositDecision(pickDepositRow(rejected), "반려");
     refresh();
     return { ok: true, data: null };
   } catch (e) {

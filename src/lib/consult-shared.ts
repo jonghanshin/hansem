@@ -14,6 +14,7 @@ export const STAGES = [
   "시공완료",
   "보류",
   "계약취소",
+  "상담종료",
 ] as const;
 export const CONSULT_KINDS = ["최초상담", "후속상담", "견적상담", "계약상담"] as const;
 export const CONTACT_STATES = ["미연락", "연락완료", "부재중", "재연락필요", "답변대기"] as const;
@@ -39,6 +40,13 @@ export const DEFAULT_WORKS = [
 
 export type Stage = (typeof STAGES)[number];
 
+/** 종료된 상담 (캘린더 자동 등록·오늘 할 일·연락 지연 경고에서 뺀다) */
+export const CLOSED_STAGES = ["보류", "계약취소", "상담종료"] as const satisfies readonly Stage[];
+
+export function isClosedStage(stage: string): boolean {
+  return (CLOSED_STAGES as readonly string[]).includes(stage);
+}
+
 /** 목록 탭: 진행단계 묶음 */
 export const STAGE_TABS = [
   { key: "active", label: "진행중", stages: ["상담접수", "상담진행", "실측예정", "견적작성", "견적전달", "계약협의"] },
@@ -46,7 +54,7 @@ export const STAGE_TABS = [
   { key: "estimate", label: "실측·견적", stages: ["실측예정", "견적작성", "견적전달"] },
   { key: "deal", label: "계약협의", stages: ["계약협의"] },
   { key: "won", label: "계약·시공", stages: ["계약완료", "시공중", "시공완료"] },
-  { key: "hold", label: "보류·취소", stages: ["보류", "계약취소"] },
+  { key: "hold", label: "보류·취소·종료", stages: [...CLOSED_STAGES] },
   { key: "all", label: "전체", stages: [...STAGES] },
 ] as const satisfies readonly { key: string; label: string; stages: readonly Stage[] }[];
 
@@ -153,13 +161,13 @@ export type AgendaItem = { kind: AgendaKind; label: string; when: string; overdu
 
 /**
  * 오늘 챙길 일: 다음 연락일이 오늘·지남, 오늘 미팅·실측, 예정일이 오늘·지난 할 일.
- * 보류·계약취소 상담은 뺀다.
+ * 보류·계약취소·상담종료 상담은 뺀다.
  */
 export function consultAgenda(
   c: Pick<Consult, "진행단계" | "다음연락일" | "다음미팅일시" | "미팅상태" | "실측일시" | "실측상태" | "할일">,
   today: string,
 ): AgendaItem[] {
-  if (c.진행단계 === "보류" || c.진행단계 === "계약취소") return [];
+  if (isClosedStage(c.진행단계)) return [];
   const items: AgendaItem[] = [];
   if (isActiveStage(c.진행단계) && c.다음연락일 && c.다음연락일 <= today) {
     items.push({ kind: "연락", label: "연락", when: c.다음연락일, overdue: c.다음연락일 < today });

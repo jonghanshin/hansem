@@ -4,7 +4,7 @@ import "server-only";
 // RD는 담당 RD('영업사원')가 본인인 상담만, 관리자 이상은 모든 상담을 보고 고친다.
 // 열외 계정이 담당이거나 등록한 상담·기록은 열외가 아닌 사용자에게 보이지 않는다.
 
-import type { Consult, ConsultFile, ConsultMember, ConsultRecord, TodoItem, WorkItem } from "@/lib/consult-shared";
+import { CLOSED_STAGES, type Consult, type ConsultFile, type ConsultMember, type ConsultRecord, type TodoItem, type WorkItem } from "@/lib/consult-shared";
 import type { Exclusion } from "@/lib/excluded-users";
 import { fetchAuthDirectory } from "@/lib/auth-directory";
 import { CONSULT_RECORDS_TABLE, CONSULT_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
@@ -81,7 +81,7 @@ export async function fetchConsultAgendaRows(view: ConsultView): Promise<Consult
   let query = getSupabaseAdmin()
     .from(CONSULT_TABLE)
     .select("id, 고객명, 영업사원, 등록자, 진행단계, 다음연락일, 다음미팅일시, 미팅상태, 실측일시, 실측상태, 할일")
-    .not("진행단계", "in", '("보류","계약취소")');
+    .not("진행단계", "in", `(${CLOSED_STAGES.map((s) => `"${s}"`).join(",")})`);
   if (view.salesName !== null) query = query.eq("영업사원", view.salesName);
   const { data, error } = await query.limit(2000);
   if (error) throw tableError("오늘 할 일 조회", error.message);

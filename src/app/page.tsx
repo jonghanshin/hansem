@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { AdminMenuCards } from "@/app/admin-menu";
+import { AssignNotice } from "@/app/assign-notice";
 import { ConsultTodayNotice } from "@/app/consult-today-notice";
 import { MENU } from "@/app/menu";
 import { PendingApprovalsNotice } from "@/app/pending-approvals-notice";
@@ -21,6 +22,9 @@ export default function Home() {
           </Suspense>
         </div>
 
+        <Suspense fallback={null}>
+          <AssignNotice variant="banner" />
+        </Suspense>
         <Suspense fallback={null}>
           <PendingApprovalsNotice variant="banner" />
         </Suspense>

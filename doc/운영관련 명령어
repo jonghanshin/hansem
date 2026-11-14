@@ -1,0 +1,27 @@
+-- caddy 기동
+PS C:\caddy> .\caddy.exe run --config C:\caddy\Caddyfile --adapter caddyfile
+
+-- 서버기동
+git pull --ff-only
+npm.cmd ci
+npm.cmd build
+npm.cmd start
+
+
+-- SUPABASE PG_CRON
+1. Supabase pg_cron으로 DB가 직접 매일 삭제 (추천)
+앱 코드는 고칠 필요가 없고, 서버가 꺼져 있어도 DB가 알아서 지웁니다. Supabase 대시보드 → Database → Extensions에서 pg_cron을 켠 다음, SQL Editor에서 아래를 한 번 실행하면 됩니다.
+
+
+-- 매일 새벽 3시(KST) = 18:00 UTC 에 종료일이 30일 지난 일정 삭제
+select cron.schedule(
+  '일정_30일_정리',
+  '0 18 * * *',
+  $$ delete from public."일정" where "종료일" < (now() at time zone 'Asia/Seoul')::date - 30 $$
+);
+
+-- 확인 / 해제
+-- select * from cron.job;
+-- select cron.unschedule('일정_30일_정리');
+종료일_idx는 현재 ("사용자", "종료일") 복합 인덱스뿐입니다. 데이터가 많아지면 create index on public."일정" ("종료일");을 추가하는 게 좋습니다.
+
