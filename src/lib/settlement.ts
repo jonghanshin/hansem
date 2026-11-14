@@ -3,8 +3,7 @@ import "server-only";
 // 정산: 미정산 현장 목록과, 선택한 현장의 현장별 계약금(현장정보)·총입금액·총출금액(입금내역) 계산
 
 import type { DataScope } from "@/lib/data-scope";
-import { depositCategoryOf, type Deposit } from "@/lib/deposits";
-import { MONEY_GROUPS } from "@/lib/site-money";
+import { CONSTRUCTION_TYPE, depositCategoryOf, type Deposit } from "@/lib/deposits";
 import { fetchAllDeposits, fetchSites } from "@/lib/sites-data";
 import { fetchComputedSources } from "@/lib/site-totals";
 import { normalizeSettlement, toMoney, withVat, type HansemOrderLine, type Site } from "@/lib/sites";
@@ -23,7 +22,7 @@ export type SettlementCandidate = Pick<
 /** 상세 팝업에 보여줄 입금내역 한 행 */
 export type SettlementDeposit = {
   id: number;
-  /** 입금구분으로 정한 묶음: 한샘 / 홈씨씨 / 시공비 / 기타 (대시보드와 같은 기준, MONEY_GROUPS) */
+  /** 출금 묶음 (settlementGroupOf): 홈씨씨 = 홈씨씨창호, 시공비 = 한샘 외 시공비, 그 외 = 기타 */
   묶음: string;
   날짜: string | null;
   입금구분: string | null;
@@ -137,11 +136,18 @@ export async function fetchSettlementCandidates(scope: DataScope): Promise<Settl
   }));
 }
 
-function toDetail(d: Deposit): SettlementDeposit {
+/** 정산 화면 총출금액의 묶음: 홈씨씨(홈씨씨창호), 시공비(한샘 외 시공비, 나비가 거래처에 지급), 그 외는 기타 */
+function settlementGroupOf(d: Deposit): "홈씨씨" | "시공비" | "기타" {
   const category = depositCategoryOf(d);
+  if (category === "홈씨씨창호") return "홈씨씨";
+  if (category === CONSTRUCTION_TYPE) return "시공비";
+  return "기타";
+}
+
+function toDetail(d: Deposit): SettlementDeposit {
   return {
     id: d.id,
-    묶음: MONEY_GROUPS.find((g) => (g.categories as readonly (string | null)[]).includes(category))?.label ?? "기타",
+    묶음: settlementGroupOf(d),
     날짜: d.dateIso ?? d.날짜,
     입금구분: d.입금구분,
     입금자: d.입금자,

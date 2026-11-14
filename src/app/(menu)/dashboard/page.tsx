@@ -12,6 +12,9 @@ import { formatMoney, type Site } from "@/lib/sites";
 import { BALANCE_ROW_COUNT } from "./balance-config";
 import { BalanceRows } from "./balance-rows";
 
+/** 대시보드에서 빼는 현장 (고객명 기준) */
+const EXCLUDED_CUSTOMERS = new Set(["나비아키테쳐", "나비아키텍쳐", "신종한"]);
+
 export const metadata = { title: "대시보드 | 현장정보 관리" };
 
 export default function DashboardPage() {
@@ -44,8 +47,8 @@ async function DashboardLoader() {
     );
   }
 
-  // 진행 중 = 완료일이 없는 현장
-  const active = result.sites.filter((s) => !s.완료일);
+  // 진행 중 = 완료일이 없는 현장 (내부용 현장은 제외)
+  const active = result.sites.filter((s) => !s.완료일 && !EXCLUDED_CUSTOMERS.has(s.고객명?.trim() ?? ""));
   const byNumber = new Map<string, Deposit[]>();
   for (const d of result.deposits) {
     const no = d.현장번호?.trim();

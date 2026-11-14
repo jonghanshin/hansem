@@ -1,29 +1,34 @@
 // 현장별 계약 금액(시공비·한샘·홈씨씨)과 실제 입금·출금 집계 (현장 상세의 입금내역, 대시보드 공용)
 
-import { depositCategoryOf, type Deposit, type DepositCategory } from "@/lib/deposits";
+import { CONSTRUCTION_TYPE, depositCategoryOf, type Deposit, type DepositCategory } from "@/lib/deposits";
 import type { SiteInput } from "@/lib/sites";
 
 export type ContractAmounts = Pick<SiteInput, "계약가" | "시공비" | "한샘상품가액" | "홈씨씨상품가액">;
 
-/**
- * 계약 금액 항목 ↔ 그 항목으로 보는 입금구분. 입금과 출금을 따로 합산한다.
- * 시공비의 출금은 '한샘 외 시공비'(거래처 지급). 거래처환불·예전 형식 구분은 넣지 않는다.
- */
+/** 계약 금액 항목: 화면 라벨 ↔ 현장정보 컬럼 */
 export const MONEY_GROUPS = [
-  {
-    label: "나비",
-    key: "시공비",
-    categories: [
-      "계약금1", "계약금2", "착수금1", "착수금2", "중도금1", "중도금2", "중도금3", "잔금1", "잔금2",
-      "한샘 외 시공비",
-    ],
-  },
-  { label: "한샘", key: "한샘상품가액", categories: ["한샘물대", "한샘시공비"] },
-  { label: "홈씨씨", key: "홈씨씨상품가액", categories: ["홈씨씨창호"] },
-] as const satisfies readonly { label: string; key: keyof ContractAmounts; categories: readonly DepositCategory[] }[];
+  { label: "나비", key: "시공비" },
+  { label: "한샘", key: "한샘상품가액" },
+  { label: "홈씨씨", key: "홈씨씨상품가액" },
+] as const satisfies readonly { label: string; key: keyof ContractAmounts }[];
+
+/**
+ * 대시보드·현장 상세의 나비 / 한샘 / 홈씨씨 입금·출금 집계 기준.
+ * 홈씨씨 = 홈씨씨창호, 나비 = 나비계약금·나비착수금·나비중도금·나비잔금 + 한샘 외 시공비 출금, 한샘 = 그 외 전부.
+ */
+const NABI_CATEGORIES: readonly DepositCategory[] = ["나비계약금", "나비착수금", "나비중도금", "나비잔금"];
+type MoneyGroupLabel = (typeof MONEY_GROUPS)[number]["label"];
+
+export function moneyGroupOf(d: Deposit): MoneyGroupLabel {
+  const category = depositCategoryOf(d);
+  if (category === "홈씨씨창호") return "홈씨씨";
+  if (category && NABI_CATEGORIES.includes(category)) return "나비";
+  if (category === CONSTRUCTION_TYPE && d.입출금 === "출금") return "나비";
+  return "한샘";
+}
 
 export const MONEY_GROUP_NOTE =
-  "나비 = 계약금·착수금·중도금·잔금(입금), 한샘 외 시공비(출금) · 한샘 = 한샘물대·한샘시공비 · 홈씨씨 = 홈씨씨창호. 거래처환불은 제외.";
+  "나비 = 나비계약금·나비착수금·나비중도금·나비잔금(입금), 한샘 외 시공비(출금) · 홈씨씨 = 홈씨씨창호 · 한샘 = 그 외 입금구분 전부.";
 
 export type MoneyGroupSummary = {
   label: string;
@@ -40,7 +45,7 @@ function sum(rows: Deposit[]) {
 /** 한 현장의 시공비·한샘·홈씨씨별 계약 / 입금 / 출금 */
 export function summarizeSiteMoney(contract: ContractAmounts, deposits: Deposit[]): MoneyGroupSummary[] {
   return MONEY_GROUPS.map((g) => {
-    const mine = deposits.filter((d) => (g.categories as readonly (string | null)[]).includes(depositCategoryOf(d)));
+    const mine = deposits.filter((d) => moneyGroupOf(d) === g.label);
     return {
       label: g.label,
       planned: contract[g.key],

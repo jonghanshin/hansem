@@ -18,7 +18,7 @@ async function fetchAccounts(): Promise<Account[]> {
 
 type NotifyStatus = "승인요청" | "확인사항요청" | "확인사항답변";
 
-/** 템플릿의 '구분'(#{입금구분}) 자리에 고객명·입금구분·진행 상태를 함께 넣어 보낸다 (예: 홍길동 계약금1 승인요청) */
+/** 템플릿의 '구분'(#{입금구분}) 자리에 고객명·입금구분·진행 상태를 함께 넣어 보낸다 (예: 홍길동 나비계약금 승인요청) */
 async function sendToAll(row: DepositRow, recipients: Account[], status: NotifyStatus) {
   const label = status;
   const templateId = KAKAO_TEMPLATES.deposit();
