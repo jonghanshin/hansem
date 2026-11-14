@@ -131,11 +131,11 @@ export function DepositFormDialog({
     }));
   }
 
-  // 입금구분 선택에 따라 입출금이 정해진다 (한샘물대·한샘시공비 = 입금, 홈씨씨창호·한샘 외 시공비 = 화면에서 선택)
+  // 입금구분 선택에 따라 입출금이 정해진다 (한샘 외 시공비 = 출금, 홈씨씨창호 = 화면에서 선택, 그 외 = 입금)
   const rule = (DEPOSIT_CATEGORIES as readonly string[]).includes(values.구분)
     ? CATEGORY_RULES[values.구분 as DepositCategory]
     : null;
-  const needsKind = rule?.입출금 === null; // 홈씨씨창호·한샘 외 시공비: 입금/출금을 직접 선택 (필수)
+  const needsKind = rule?.입출금 === null; // 홈씨씨창호: 입금/출금을 직접 선택 (필수)
   const kind = rule ? (rule.입출금 ?? values.입출금) : "";
   // 거래처 정보는 출금일 때만 보여준다 (입금이면 숨기고, 입력해 둔 값은 저장 시 서버에서 비움)
   const showVendor = vendorInfoAllowed(kind);
