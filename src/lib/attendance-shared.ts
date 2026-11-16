@@ -1,6 +1,7 @@
 // 근태관리: 서버·브라우저 공용 상수와 타입
 
-export const ATTENDANCE_KINDS = ["출근", "퇴근"] as const;
+/** 출근예정: 퇴근할 때 정하는 내일 출근 예정지 (근무일 = 다음 날) */
+export const ATTENDANCE_KINDS = ["출근", "퇴근", "출근예정"] as const;
 export type AttendanceKind = (typeof ATTENDANCE_KINDS)[number];
 
 /** 장소 선택지. 현장은 진행 중인 내 현장을, 기타는 직접 입력을 추가로 받는다 */
@@ -43,4 +44,14 @@ export function formatClock(iso: string): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+/** YYYY-MM-DD에 n일을 더한다 */
+export function addDays(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+export function isYmd(v: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) && addDays(v, 0) === v;
 }
