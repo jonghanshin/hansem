@@ -9,6 +9,7 @@ import { canApprove } from "@/lib/data-scope";
 import { formatMoney, type Site } from "@/lib/sites";
 import { fetchAllDeposits, fetchSites } from "@/lib/sites-data";
 
+import { MyInfoTabs } from "./my-info-tabs";
 import { PasswordForm } from "./password-form";
 
 export const metadata = { title: "나의정보 | 현장정보 관리" };
@@ -74,7 +75,7 @@ async function MyInfo() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 p-4 sm:p-6">
-      <h1 className="text-lg font-semibold text-zinc-900">나의정보</h1>
+      <MyInfoTabs active="me" />
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* 내 정보 */}

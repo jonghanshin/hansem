@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { formatDateTime } from "@/lib/consult-shared";
@@ -11,6 +12,8 @@ const BANNER_MAX = 5;
 export const NOTICE_ICON: Record<Notice["kind"], string> = { 고객상담: "💬", "A/S": "🛠️" };
 
 export async function AssignNotice({ variant }: { variant: "nav" | "banner" }) {
+  // 요청 시에만 조회한다 (프리페치·프리렌더 중에 DB 조회를 시작했다가 중단되며 오류가 나지 않도록)
+  await connection();
   const session = await getSession();
   if (!session || session.mustChangePassword) return null;
 

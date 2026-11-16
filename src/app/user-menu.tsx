@@ -20,6 +20,9 @@ export async function UserMenu({ tone = "dark" }: { tone?: "dark" | "light" }) {
       <Link href="/me" className={button}>
         나의정보
       </Link>
+      <Link href="/me/attendance" className={button}>
+        근태관리
+      </Link>
       <LogoutButton className={button} />
     </div>
   );

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 
 import { countPendingRequests, countRejectedRequests } from "@/lib/approvals";
 import { getSession, resolveScope } from "@/lib/auth";
@@ -10,6 +11,8 @@ import { canApprove, RESTRICTED_ROLE } from "@/lib/data-scope";
  * - RD: 본인이 요청한 승인 대기 건수 + 반려 건수 → 내 요청 화면(/my-requests)
  */
 export async function PendingApprovalsNotice({ variant }: { variant: "nav" | "banner" }) {
+  // 요청 시에만 조회한다 (프리페치·프리렌더 중에 DB 조회를 시작했다가 중단되며 오류가 나지 않도록)
+  await connection();
   const session = await getSession();
   if (!session) return null;
 

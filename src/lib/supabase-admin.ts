@@ -16,6 +16,7 @@ export const CONSULT_RECORDS_TABLE = "상담기록";
 export const AS_TABLE = "AS접수";
 export const AS_HISTORY_TABLE = "AS이력";
 export const NOTICE_TABLE = "알림";
+export const ATTENDANCE_TABLE = "근태";
 
 export class MissingSupabaseConfigError extends Error {
   constructor() {

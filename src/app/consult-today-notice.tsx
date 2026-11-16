@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { todayInKorea } from "@/lib/calendar-shared";
@@ -25,6 +26,8 @@ async function loadAgenda(): Promise<{ c: ConsultAgendaRow; a: AgendaItem }[] | 
 }
 
 export async function ConsultTodayNotice({ variant }: { variant: "nav" | "banner" }) {
+  // 요청 시에만 조회한다 (프리페치·프리렌더 중에 DB 조회를 시작했다가 중단되며 오류가 나지 않도록)
+  await connection();
   // 조회에 실패하면 알림만 생략한다 (메뉴 바·첫 화면은 그대로)
   const items = await loadAgenda().catch(() => null);
   if (!items || items.length === 0) return null;
