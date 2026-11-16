@@ -77,33 +77,25 @@ async function MyInfo() {
     <div className="mx-auto w-full max-w-5xl space-y-5 p-4 sm:p-6">
       <MyInfoTabs active="me" />
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        {/* 내 정보 */}
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>내 정보</h2>
-          <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-sm">
-            <dt className="text-zinc-500">이름</dt>
-            <dd className="font-semibold text-zinc-900">{profile?.이름 ?? session.name}</dd>
-            <dt className="text-zinc-500">ID</dt>
-            <dd className="text-zinc-900 tabular-nums">{profile?.영업사원ID ?? session.sid}</dd>
-            <dt className="text-zinc-500">역할</dt>
-            <dd className="text-zinc-900">
-              {profile?.역할 ?? (session.role || "-")}
-              {canApprove(session) && (
-                <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">승인 권한</span>
-              )}
-            </dd>
-            <dt className="text-zinc-500">최근 로그인</dt>
-            <dd className="text-zinc-900">{profile?.접속시간 ? formatBoardDate(profile.접속시간, true) : "-"}</dd>
-          </dl>
-        </section>
-
-        {/* 비밀번호 변경 */}
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>비밀번호 변경</h2>
-          <PasswordForm minLength={MIN_PASSWORD_LENGTH} />
-        </section>
-      </div>
+      {/* 내 정보 */}
+      <section className={CARD}>
+        <h2 className={CARD_TITLE}>내 정보</h2>
+        <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-sm">
+          <dt className="text-zinc-500">이름</dt>
+          <dd className="font-semibold text-zinc-900">{profile?.이름 ?? session.name}</dd>
+          <dt className="text-zinc-500">ID</dt>
+          <dd className="text-zinc-900 tabular-nums">{profile?.영업사원ID ?? session.sid}</dd>
+          <dt className="text-zinc-500">역할</dt>
+          <dd className="text-zinc-900">
+            {profile?.역할 ?? (session.role || "-")}
+            {canApprove(session) && (
+              <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">승인 권한</span>
+            )}
+          </dd>
+          <dt className="text-zinc-500">최근 로그인</dt>
+          <dd className="text-zinc-900">{profile?.접속시간 ? formatBoardDate(profile.접속시간, true) : "-"}</dd>
+        </dl>
+      </section>
 
       {/* 현장 요약 */}
       <section className={CARD}>
@@ -184,6 +176,12 @@ async function MyInfo() {
             )}
           </>
         )}
+      </section>
+
+      {/* 비밀번호 변경 */}
+      <section className={`${CARD} max-w-xl`}>
+        <h2 className={CARD_TITLE}>비밀번호 변경</h2>
+        <PasswordForm minLength={MIN_PASSWORD_LENGTH} />
       </section>
     </div>
   );

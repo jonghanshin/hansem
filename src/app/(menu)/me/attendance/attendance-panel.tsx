@@ -102,7 +102,7 @@ export function AttendancePanel({
           <p className="py-4 text-center text-sm text-zinc-500">기록이 없습니다.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[24rem] text-sm">
+            <table className="w-full text-sm">
               <thead className="border-b border-zinc-200 text-xs text-zinc-500">
                 <tr>
                   <th className="px-2 py-1.5 text-left font-medium">날짜</th>
@@ -115,16 +115,16 @@ export function AttendancePanel({
               <tbody className="divide-y divide-zinc-100">
                 {records.map((r) => (
                   <tr key={r.id}>
-                    <td className="px-2 py-1.5 text-zinc-500 tabular-nums">{r.근무일}</td>
-                    <td className="px-2 py-1.5 text-zinc-900 tabular-nums">{formatClock(r.기록일시)}</td>
+                    <td className="px-1.5 py-1.5 whitespace-nowrap text-zinc-500 tabular-nums sm:px-2">{r.근무일.slice(5)}</td>
+                    <td className="px-1.5 py-1.5 text-zinc-900 tabular-nums sm:px-2">{formatClock(r.기록일시)}</td>
                     <td
-                      className={`px-2 py-1.5 font-medium ${
+                      className={`px-1.5 py-1.5 font-medium whitespace-nowrap sm:px-2 ${
                         r.구분 === "출근" ? "text-blue-700" : r.구분 === "출근예정" ? "text-amber-700" : "text-zinc-700"
                       }`}
                     >
                       {r.구분}
                     </td>
-                    <td className="px-2 py-1.5 text-zinc-900">
+                    <td className="px-1.5 py-1.5 break-words text-zinc-900 sm:px-2">
                       {r.장소구분 !== r.장소 && r.장소구분 !== "기타" && (
                         <span className="mr-1 text-xs text-zinc-400">{r.장소구분}</span>
                       )}
