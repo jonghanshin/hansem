@@ -46,6 +46,7 @@ const FIELDS: (typeof DEPOSIT_COLUMNS)[number][] = [
   "계약가",
   "현금영수증",
   "부가세포함",
+  "카드결제",
   "영수증",
   "비고",
   "A/S",

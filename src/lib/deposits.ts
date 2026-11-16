@@ -19,6 +19,8 @@ export type DepositRow = {
   현금영수증: string | null;
   /** 입금구분이 '한샘 외 시공비'일 때만: 포함 / 미포함 */
   부가세포함: string | null;
+  /** 입금구분이 '한샘 외 시공비'일 때만: 카드결제면 "Y", 아니면 null */
+  카드결제: string | null;
   /** 한샘 외 시공비 영수증 파일 정보 (JSON, receipt-files-shared의 ReceiptInfo) */
   영수증: string | null;
   비고: string | null;
@@ -75,6 +77,7 @@ export const DEPOSIT_COLUMNS = [
   "날짜",
   "현금영수증",
   "부가세포함",
+  "카드결제",
   "영수증",
   "비고",
   "A/S",
@@ -136,6 +139,7 @@ export function depositToInput(d: Deposit): DepositInput {
     현금영수증,
     현금영수증사유: note.reason,
     부가세포함: (VAT_OPTIONS as readonly (string | null)[]).includes(d.부가세포함) ? d.부가세포함! : VAT_DEFAULT,
+    카드결제: d.카드결제 === CARD_PAYMENT_CHECKED ? CARD_PAYMENT_CHECKED : "",
     영수증: d.영수증 ?? "",
     "A/S": note.note,
     ...Object.fromEntries(VENDOR_INFO_COLUMNS.map((c) => [c, d[c] ?? ""])) as VendorInfo,
@@ -174,6 +178,8 @@ export const REFUND_TYPE = "거래처환불";
 /** 부가세포함 선택값. 입금구분이 '한샘 외 시공비'일 때만 받는다 (필수) */
 export const VAT_OPTIONS = ["포함", "미포함"] as const;
 export const VAT_DEFAULT = "포함";
+/** 카드결제 체크 값 (한샘 외 시공비일 때만, 기본은 미체크 = "") */
+export const CARD_PAYMENT_CHECKED = "Y";
 
 export function vatChoiceRequired(category: string | null | undefined): boolean {
   return category === CONSTRUCTION_TYPE;
@@ -344,6 +350,8 @@ export type DepositInput = {
   현금영수증사유: string;
   /** 구분이 '한샘 외 시공비'일 때 필수: 포함 / 미포함 */
   부가세포함: string;
+  /** 구분이 '한샘 외 시공비'일 때 카드결제 체크 여부: "Y" / "" */
+  카드결제: string;
   /** 구분이 '한샘 외 시공비'일 때 영수증 파일 정보 (선택, 업로드 후 받은 JSON) */
   영수증: string;
   /** A/S 내용 (자유 입력, 선택) */
@@ -411,6 +419,7 @@ export function normalizeDepositInput(
   if (withVatChoice && !(VAT_OPTIONS as readonly (string | null)[]).includes(부가세포함)) {
     errors.push(`부가세 포함은 ${VAT_OPTIONS.join(", ")} 중에서 선택하세요`);
   }
+  const 카드결제 = withVatChoice && text(raw.카드결제) === CARD_PAYMENT_CHECKED ? CARD_PAYMENT_CHECKED : null;
   // 영수증 파일도 한샘 외 시공비일 때만 저장한다 (업로드 정보 형식만 허용)
   const receiptText = withVatChoice ? text(raw.영수증) : null;
   const receipt = receiptText ? parseReceipt(receiptText) : null;
@@ -468,6 +477,7 @@ export function normalizeDepositInput(
       날짜: dateIso ? `${toKoreanDate(dateIso)}${timeSuffix}` : null,
       현금영수증, // 비어 있으면 수정 시 서버에서 기존 값 유지
       부가세포함,
+      카드결제,
       영수증: receipt ? JSON.stringify(receipt) : null,
       비고: null,
       "A/S": as,

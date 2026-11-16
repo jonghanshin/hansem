@@ -42,6 +42,7 @@ export function DepositDetailDialog({
     ["입금처", d.입금처],
     ["현금영수증", d.현금영수증],
     ["부가세 포함", d.부가세포함],
+    ["카드결제", d.카드결제 === "Y" ? "예" : null],
     ["영수증 파일", <ReceiptLink key="receipt" value={d.영수증} />],
     ["비고", d.비고],
     ["A/S", d["A/S"]],

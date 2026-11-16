@@ -8,6 +8,9 @@ import type { KnowledgeRow, VendorPickerData } from "@/lib/knowledge-shared";
 
 const str = (v: string | number | null | undefined) => (v === null || v === undefined ? "" : String(v).trim());
 
+/** 전체 거래처 검색 결과를 한 번에 보여주는 최대 건수 */
+const MAX_ALL_MATCHES = 50;
+
 /** 직접 입력 선택값 */
 const MANUAL = "manual" as const;
 type Choice = number | typeof MANUAL | null;
@@ -104,6 +107,10 @@ export function VendorPickerDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [process, setProcess] = useState(current.공정);
   const [choice, setChoice] = useState<Choice>(null);
+  /** 고른 공정의 거래처 검색어 (공정을 바꾸면 비운다) */
+  const [query, setQuery] = useState("");
+  /** 공정을 고르기 전에 전체 공정의 거래처를 찾는 검색어 */
+  const [allQuery, setAllQuery] = useState("");
   /** 저장할 값 (목록에서 고르면 그 행 값으로 채우고 공정 외 모든 칸을 고칠 수 있다. 직접 입력이면 모두 입력) */
   const [form, setForm] = useState<VendorInfo>(current);
   /** 직접 입력하던 값 (목록 선택과 오가도 잃지 않게) */
@@ -139,8 +146,17 @@ export function VendorPickerDialog({
   const processInfo = data?.processes.find((p) => p.공정 === process) ?? null;
   const vendors = data && process ? data.vendors.filter((v) => str(v.공정) === process) : [];
   const chosenRow = typeof choice === "number" ? (vendors.find((v) => v.id === choice) ?? null) : null;
+  const shownVendors = vendors.filter((v) => matchesVendor(v, query));
   // 공정표에 없는 기존 값(이름이 바뀐 공정 등)도 선택 목록에 남겨 둔다
-  const keepCurrent = data && initial.공정 && !data.processes.some((p) => p.공정 === initial.공정) ? initial.공정 : null;
+  // (전체 거래처 검색으로 공정표에 없는 공정의 거래처를 고른 경우도 같다)
+  const keepCurrent = data && process && !data.processes.some((p) => p.공정 === process) ? process : null;
+  /** 전체 공정 거래처 검색 결과 (공정표 순서대로, 너무 많으면 앞의 일부만) */
+  const processOrder = new Map(data?.processes.map((p, i) => [p.공정, i]) ?? []);
+  const allMatches = data && allQuery.trim()
+    ? data.vendors
+        .filter((v) => str(v.공정) && (matchesVendor(v, allQuery) || norm(str(v.공정)).includes(norm(allQuery))))
+        .sort((a, b) => (processOrder.get(str(a.공정)) ?? Infinity) - (processOrder.get(str(b.공정)) ?? Infinity))
+    : [];
 
   // 입금내역에 저장될 값
   const result: VendorInfo | null = process && (chosenRow || choice === MANUAL) ? { ...form, 공정: process } : null;
@@ -156,14 +172,24 @@ export function VendorPickerDialog({
     setMode(next);
   }
 
-  function chooseRow(row: KnowledgeRow) {
+  function chooseRow(row: KnowledgeRow, proc = process) {
     setError(null);
     setChoice(row.id);
-    const info = rowToInfo(process, row, processInfo?.주요작업);
+    const work = data?.processes.find((p) => p.공정 === proc)?.주요작업;
+    const info = rowToInfo(proc, row, work);
     setForm(info);
     // 업체계좌가 비어 있고 대체계좌만 있는 거래처면 대체계좌를 골라 둔다 (언제든 바꿀 수 있음)
     const hasMain = accountKeys("main").some((k) => info[k].trim());
     if (!hasMain && accountTypeOf(info) === "alt") setAccountType("alt");
+  }
+
+  /** 전체 거래처 검색 결과에서 고르면 그 공정과 거래처를 한 번에 선택한다 */
+  function chooseFromAll(row: KnowledgeRow) {
+    const proc = str(row.공정);
+    setProcess(proc);
+    setQuery("");
+    setAllQuery("");
+    chooseRow(row, proc);
   }
 
   function chooseManual() {
@@ -212,7 +238,7 @@ export function VendorPickerDialog({
             <p className="mt-0.5 text-xs text-zinc-500">
               {direct
                 ? "공정별거래처를 거치지 않고 협력업체를 자유롭게 적습니다."
-                : "공정을 고른 뒤 거래처를 선택하세요. 목록에 없으면 ‘직접 입력’을 고르세요."}
+                : "공정을 고른 뒤 거래처를 검색해 선택하세요. 목록에 없으면 ‘직접 입력’을 고르세요."}
             </p>
           </div>
           <button
@@ -272,6 +298,50 @@ export function VendorPickerDialog({
             <p className="py-8 text-center text-sm text-zinc-500">공정표·공정별거래처를 불러오는 중…</p>
           ) : (
             <>
+              <div>
+                <input
+                  type="search"
+                  value={allQuery}
+                  onChange={(e) => setAllQuery(e.target.value)}
+                  placeholder="전체 공정에서 거래처 검색 (업체·담당자·연락처·세부 업무·공정)"
+                  aria-label="전체 공정에서 거래처 검색"
+                  autoFocus
+                  className={INPUT}
+                />
+                {allQuery.trim() && (
+                  <div className="mt-2">
+                    <p className="mb-1 text-xs text-zinc-500">
+                      {allMatches.length === 0
+                        ? `‘${allQuery.trim()}’에 맞는 거래처가 없습니다.`
+                        : `검색 결과 ${allMatches.length}건${allMatches.length > MAX_ALL_MATCHES ? ` (앞 ${MAX_ALL_MATCHES}건만 표시)` : ""} · 고르면 공정과 거래처가 함께 선택됩니다`}
+                    </p>
+                    {allMatches.length > 0 && (
+                      <ul className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-zinc-200 p-1">
+                        {allMatches.slice(0, MAX_ALL_MATCHES).map((v) => (
+                          <li key={v.id}>
+                            <button
+                              type="button"
+                              onClick={() => chooseFromAll(v)}
+                              className="flex w-full flex-wrap items-baseline gap-x-2 rounded px-2 py-1.5 text-left text-sm hover:bg-blue-50"
+                            >
+                              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700">{str(v.공정)}</span>
+                              <span className="font-semibold text-zinc-900">{str(v.업체) || "(업체명 없음)"}</span>
+                              {str(v.업체담당자성함) && <span className="text-zinc-700">{str(v.업체담당자성함)}</span>}
+                              {str(v.업체담당자연락처) && (
+                                <span className="tabular-nums text-zinc-600">{str(v.업체담당자연락처)}</span>
+                              )}
+                              {str(v["세부 업무"]) && (
+                                <span className="w-full truncate text-xs text-zinc-500">세부 업무: {str(v["세부 업무"])}</span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-zinc-700">
                   1. 공정<span className="ml-0.5 text-red-600">*</span>
@@ -280,17 +350,17 @@ export function VendorPickerDialog({
                   value={process}
                   onChange={(e) => {
                     setProcess(e.target.value);
+                    setQuery("");
                     setError(null);
                     // 다른 공정의 거래처 선택은 풀고, 직접 입력 중이면 그대로 둔다
                     setChoice((c) => (c === MANUAL ? c : null));
                   }}
-                  autoFocus
                   className={INPUT}
                 >
                   <option value="" disabled>
                     공정표의 공정 {data.processes.length}개 중 선택
                   </option>
-                  {keepCurrent && <option value={keepCurrent}>{keepCurrent} (현재 값)</option>}
+                  {keepCurrent && <option value={keepCurrent}>{keepCurrent} (공정표에 없음)</option>}
                   {data.processes.map((p) => {
                     const n = data.vendors.filter((v) => str(v.공정) === p.공정).length;
                     return (
@@ -308,24 +378,23 @@ export function VendorPickerDialog({
               {process && (
                 <fieldset>
                   <legend className="mb-1 text-xs font-medium text-zinc-700">
-                    2. 거래처 <span className="font-normal text-zinc-500">(공정별거래처 · {vendors.length}건)</span>
+                    2. 거래처{" "}
+                    <span className="font-normal text-zinc-500">
+                      (공정별거래처 · {query.trim() ? `${shownVendors.length}/${vendors.length}건` : `${vendors.length}건`})
+                    </span>
                     <span className="ml-0.5 text-red-600">*</span>
                   </legend>
+                  {vendors.length > 0 && (
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={`${process} 거래처 검색 (업체·담당자·연락처·세부 업무)`}
+                      aria-label={`${process} 거래처 검색`}
+                      className={`${INPUT} mb-2`}
+                    />
+                  )}
                   <ul className="space-y-2">
-                    {vendors.length === 0 && (
-                      <li className="rounded-md bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500">
-                        공정별거래처에 이 공정의 거래처가 없습니다. 아래 &lsquo;직접 입력&rsquo;으로 입력하세요.
-                      </li>
-                    )}
-                    {vendors.map((v) => (
-                      <VendorOption
-                        key={v.id}
-                        name={`${idp}-vendor`}
-                        vendor={v}
-                        checked={choice === v.id}
-                        onChoose={() => chooseRow(v)}
-                      />
-                    ))}
                     <li>
                       <label
                         className={`flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 text-sm ${
@@ -345,6 +414,25 @@ export function VendorPickerDialog({
                         <span className="text-xs text-zinc-500">해당하는 업체가 목록에 없을 때</span>
                       </label>
                     </li>
+                    {vendors.length === 0 && (
+                      <li className="rounded-md bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500">
+                        공정별거래처에 이 공정의 거래처가 없습니다. 위 &lsquo;직접 입력&rsquo;으로 입력하세요.
+                      </li>
+                    )}
+                    {vendors.length > 0 && shownVendors.length === 0 && (
+                      <li className="rounded-md bg-zinc-50 px-3 py-3 text-center text-sm text-zinc-500">
+                        &lsquo;{query.trim()}&rsquo;에 맞는 거래처가 없습니다.
+                      </li>
+                    )}
+                    {shownVendors.map((v) => (
+                      <VendorOption
+                        key={v.id}
+                        name={`${idp}-vendor`}
+                        vendor={v}
+                        checked={choice === v.id}
+                        onChoose={() => chooseRow(v)}
+                      />
+                    ))}
                   </ul>
                 </fieldset>
               )}
@@ -464,6 +552,19 @@ export function VendorPickerDialog({
       </div>
     </div>
   );
+}
+
+/** 거래처 검색: 업체·담당자·연락처·세부 업무·업체비고·구분에 검색어가 들어 있는지 (공백·대소문자 무시) */
+const norm = (t: string) => t.replace(/\s+/g, "").toLowerCase();
+
+function matchesVendor(v: KnowledgeRow, query: string): boolean {
+  const q = norm(query);
+  if (!q) return true;
+  const phone = q.replace(/-/g, "");
+  return [v.업체, v.업체담당자성함, v.업체담당자연락처, v["세부 업무"], v.업체비고, v.구분].some((f) => {
+    const t = norm(str(f));
+    return t.includes(q) || (!!phone && t.replace(/-/g, "").includes(phone));
+  });
 }
 
 /** 거래처 정보 요약 (공정 / 세부공정 / 업체 / 담당자 / 연락처 / 업체비고) */

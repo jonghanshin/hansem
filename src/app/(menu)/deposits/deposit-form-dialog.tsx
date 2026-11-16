@@ -9,6 +9,7 @@ import { parseReceipt, RECEIPT_MAX_BYTES } from "@/lib/receipt-files-shared";
 import type { RequestKind } from "@/lib/approvals";
 import {
   AS_MAX_LENGTH,
+  CARD_PAYMENT_CHECKED,
   CASH_RECEIPT_NOT_NEEDED,
   CASH_RECEIPT_OPTIONS,
   CASH_RECEIPT_REASON_MAX_LENGTH,
@@ -67,8 +68,6 @@ export function DepositFormDialog({
 }) {
   const idp = useId();
   const isEdit = editing !== null && (!resubmit || resubmit.kind === "수정");
-  // 관리자 이상은 승인 요청 없이 바로 반영 (등록 → 승인, 수정 → 수정)
-  const direct = isAdmin && !resubmit;
   const [values, setValues] = useState<DepositInput>(() =>
     editing
       ? { ...depositToInput(editing), ...(fixedSalesName && { 영업사원: fixedSalesName }) }
@@ -85,6 +84,7 @@ export function DepositFormDialog({
           현금영수증: "",
           현금영수증사유: "",
           부가세포함: VAT_DEFAULT,
+          카드결제: "",
           영수증: "",
           "A/S": "",
           ...EMPTY_VENDOR_INFO,
@@ -167,8 +167,8 @@ export function DepositFormDialog({
       const res = resubmit
         ? await resubmitRequestAction(resubmit.requestId, values)
         : editing
-          ? await updateDepositAction(editing.id, values, { direct })
-          : await createDepositAction(values, { direct });
+          ? await updateDepositAction(editing.id, values)
+          : await createDepositAction(values);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -177,10 +177,6 @@ export function DepositFormDialog({
       onDone(
         resubmit
           ? `${label} 다시 승인 요청했습니다`
-          : direct
-          ? isEdit
-            ? `${label} 수정했습니다`
-            : `${label}을 승인해 입금내역에 반영했습니다`
           : isEdit
           ? `${label} 수정을 요청했습니다. 승인 후 반영됩니다`
           : `${label}을 승인 요청했습니다. 승인 후 입금내역에 반영됩니다`,
@@ -208,9 +204,7 @@ export function DepositFormDialog({
             <p className="mt-0.5 text-xs text-zinc-500">
               {resubmit
                 ? "관리자 의견을 반영해 고친 뒤 다시 승인 요청하세요."
-                : direct
-                  ? "관리자 권한으로 승인 요청 없이 입금내역에 바로 반영됩니다."
-                  : isEdit
+                : isEdit
                   ? "수정 내용은 관리자 승인 후 입금내역에 반영됩니다."
                   : "등록한 내역은 관리자 승인 후 입금내역에 반영됩니다."}
             </p>
@@ -444,6 +438,17 @@ export function DepositFormDialog({
                 </label>
               )}
               {vatChoiceRequired(values.구분) && (
+                <label className="col-span-2 flex items-center gap-2 self-end pb-2 text-sm text-zinc-700 sm:col-span-4">
+                  <input
+                    type="checkbox"
+                    checked={values.카드결제 === CARD_PAYMENT_CHECKED}
+                    onChange={(e) => set("카드결제", e.target.checked ? CARD_PAYMENT_CHECKED : "")}
+                    className="size-4 rounded border-zinc-300"
+                  />
+                  카드결제
+                </label>
+              )}
+              {vatChoiceRequired(values.구분) && (
                 <ReceiptUpload value={values.영수증} onChange={(v) => set("영수증", v)} disabled={pending} />
               )}
               {showReceipt && (
@@ -558,17 +563,7 @@ export function DepositFormDialog({
               disabled={pending}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
-              {direct
-                ? pending
-                  ? "저장 중…"
-                  : isEdit
-                    ? "수정"
-                    : "승인"
-                : pending
-                  ? "요청 중…"
-                  : resubmit
-                    ? "다시 승인 요청"
-                    : "승인 요청"}
+              {pending ? "요청 중…" : resubmit ? "다시 승인 요청" : "승인 요청"}
             </button>
           </div>
         </div>

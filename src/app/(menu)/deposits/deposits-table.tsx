@@ -8,7 +8,7 @@ import { Pagination, scrollToListTop, usePagination } from "@/app/pagination";
 import { depositExportTable } from "@/lib/export-rows";
 
 import type { RequestKind } from "@/lib/approvals";
-import { DEPOSIT_TYPES, depositDateText, needsCorrection, type Deposit } from "@/lib/deposits";
+import { CASH_RECEIPT_OPTIONS, DEPOSIT_TYPES, depositDateText, needsCorrection, type Deposit } from "@/lib/deposits";
 import { formatMoney, type SiteSummary } from "@/lib/sites";
 
 import { DepositDetailDialog } from "./deposit-detail-dialog";
@@ -26,6 +26,7 @@ type Filters = {
   영업사원: string; // "" = 전체
   입금자: string;
   입금구분: string; // "" = 전체
+  현금영수증: string[]; // [] = 전체, 여러 값 선택 시 그중 하나라도 맞으면 (NO_RECEIPT = 값이 없는 행)
   dateFrom: string; // YYYY-MM-DD, "" = 제한 없음
   dateTo: string;
 };
@@ -37,9 +38,13 @@ const EMPTY_FILTERS: Filters = {
   영업사원: "",
   입금자: "",
   입금구분: "",
+  현금영수증: [],
   dateFrom: "",
   dateTo: "",
 };
+
+/** 현금영수증 검색: 값이 비어 있는 행 (출금 등) */
+const NO_RECEIPT = "__none__";
 
 function includesText(value: string | null, q: string) {
   const needle = q.trim().toLowerCase();
@@ -111,6 +116,11 @@ export function DepositsTable({
     const extra = distinct(deposits, "입금구분").filter((v) => !(DEPOSIT_TYPES as readonly string[]).includes(v));
     return [...DEPOSIT_TYPES, ...extra];
   }, [deposits]);
+  // 정해진 영수증 선택값 + 기존 데이터에만 있는 값 (예전 표기)
+  const receiptOptions = useMemo(() => {
+    const extra = distinct(deposits, "현금영수증").filter((v) => !(CASH_RECEIPT_OPTIONS as readonly string[]).includes(v));
+    return [...CASH_RECEIPT_OPTIONS, ...extra];
+  }, [deposits]);
 
   // 완료일이 있는 현장번호 (현장정보에 없는 현장번호는 진행 중으로 본다)
   const doneSites = useMemo(
@@ -119,7 +129,7 @@ export function DepositsTable({
   );
 
   const filtered = useMemo(() => {
-    const { 현장상태, 현장번호, 고객명, 영업사원, 입금자, 입금구분, dateFrom, dateTo } = filters;
+    const { 현장상태, 현장번호, 고객명, 영업사원, 입금자, 입금구분, 현금영수증, dateFrom, dateTo } = filters;
     const hasDateFilter = !!(dateFrom || dateTo);
     const isDone = (d: Deposit) => doneSites.has(d.현장번호?.trim() ?? "");
     const rows = deposits.filter(
@@ -131,6 +141,7 @@ export function DepositsTable({
         includesText(d.입금자, 입금자) &&
         (!영업사원 || d.영업사원 === 영업사원) &&
         (!입금구분 || d.입금구분 === 입금구분) &&
+        (현금영수증.length === 0 || 현금영수증.includes(d.현금영수증?.trim() || NO_RECEIPT)) &&
         // 기간 검색 시 날짜를 해석할 수 없는 행은 제외
         (!hasDateFilter ||
           (d.dateIso !== null && (!dateFrom || d.dateIso >= dateFrom) && (!dateTo || d.dateIso <= dateTo))),
@@ -148,7 +159,10 @@ export function DepositsTable({
   // 모바일에서는 검색 조건을 접어 두고 버튼으로 연다
   const [filtersOpen, setFiltersOpen] = useState(false);
   // 기본값과 다른 검색 조건 수 (현장 상태 기본값 '진행 중 현장만'은 세지 않음)
-  const activeFilterCount = (Object.keys(filters) as (keyof Filters)[]).filter((k) => filters[k] !== EMPTY_FILTERS[k]).length;
+  const activeFilterCount = (Object.keys(filters) as (keyof Filters)[]).filter((k) => {
+    const v = filters[k];
+    return Array.isArray(v) ? v.length > 0 : v !== EMPTY_FILTERS[k];
+  }).length;
 
   // 검색 조건이 바뀌면 첫 페이지로
   const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
@@ -402,6 +416,15 @@ export function DepositsTable({
             ))}
           </select>
         </Field>
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-xs font-medium text-zinc-600">현금영수증</span>
+          <MultiSelect
+            options={[...receiptOptions.map((v) => ({ value: v, label: v })), { value: NO_RECEIPT, label: "(값 없음)" }]}
+            value={filters.현금영수증}
+            onChange={(v) => setFilter("현금영수증", v)}
+            className={`${INPUT} w-full lg:w-40`}
+          />
+        </div>
         <Field label="날짜" className="col-span-2">
           <div className="flex items-center gap-1.5">
             <input
@@ -573,6 +596,83 @@ function kindBadge(kind: string) {
   const color =
     kind === "입금" ? "bg-emerald-50 text-emerald-700" : kind === "출금" ? "bg-red-50 text-red-700" : "bg-zinc-100 text-zinc-600";
   return `rounded px-1.5 py-0.5 text-xs font-medium ${color}`;
+}
+
+/** 여러 값을 체크해서 고르는 드롭다운 (아무것도 고르지 않으면 전체) */
+function MultiSelect({
+  options,
+  value,
+  onChange,
+  className,
+}: {
+  options: { value: string; label: string }[];
+  value: string[];
+  onChange: (value: string[]) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  const labels = options.filter((o) => value.includes(o.value)).map((o) => o.label);
+  const summary = labels.length === 0 ? "전체" : labels.length === 1 ? labels[0] : `${labels[0]} 외 ${labels.length - 1}`;
+  return (
+    <div
+      ref={ref}
+      className="relative"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) {
+          e.stopPropagation();
+          setOpen(false);
+        }
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={labels.join(", ") || "전체"}
+        className={`${className ?? ""} flex items-center justify-between gap-1 text-left`}
+      >
+        <span className="truncate">{summary}</span>
+        <svg viewBox="0 0 20 20" className="size-4 shrink-0 text-zinc-500" fill="currentColor" aria-hidden>
+          <path d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.06l3.71-3.83a.75.75 0 1 1 1.08 1.04l-4.25 4.39a.75.75 0 0 1-1.08 0L5.21 8.27a.75.75 0 0 1 .02-1.06Z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute left-0 z-30 mt-1 w-max min-w-full rounded-md border border-zinc-200 bg-white py-1 shadow-lg" role="listbox" aria-multiselectable="true">
+          {options.map((o) => (
+            <label key={o.value} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">
+              <input
+                type="checkbox"
+                checked={value.includes(o.value)}
+                onChange={() => toggle(o.value)}
+                className="size-4 accent-blue-600"
+              />
+              {o.label}
+            </label>
+          ))}
+          {value.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="mt-1 w-full border-t border-zinc-100 px-3 py-1.5 text-left text-xs text-zinc-500 hover:bg-zinc-50"
+            >
+              선택 해제 (전체)
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
