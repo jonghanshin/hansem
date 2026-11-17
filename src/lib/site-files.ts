@@ -1,6 +1,6 @@
 import "server-only";
 
-// 현장 첨부 문서의 실제 파일은 서버의 upload/contract, upload/estimate, upload/material 폴더에 임의의 이름으로 저장한다.
+// 현장 첨부 문서의 실제 파일은 서버의 upload/contract, upload/estimate, upload/material, upload/reference 폴더에 임의의 이름으로 저장한다.
 // upload 폴더는 public 밖에 있어 직접 접근할 수 없고, 로그인·조회 권한 확인 후 /sites/[siteId]/files/[kind]로만 내려받는다.
 
 import { randomUUID } from "node:crypto";

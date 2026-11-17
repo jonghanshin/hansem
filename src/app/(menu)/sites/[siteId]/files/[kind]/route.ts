@@ -3,11 +3,11 @@ import type { NextRequest } from "next/server";
 import { getSession, resolveScope } from "@/lib/auth";
 import { applyScope } from "@/lib/data-scope";
 import { readSiteFile } from "@/lib/site-files";
-import { isSiteFileKind, parseSiteFile, siteFileColumn } from "@/lib/site-files-shared";
+import { isMultiSiteFileKind, isSiteFileKind, parseSiteFiles, siteFileColumn } from "@/lib/site-files-shared";
 import { getSupabaseAdmin, SITES_TABLE } from "@/lib/supabase-admin";
 
-// 현장 문서(최종계약서·최종견적서·자재리스트) 내려받기. 로그인하고 그 현장을 볼 수 있는 사용자만 받을 수 있다.
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ siteId: string; kind: string }> }) {
+// 현장 문서(최종계약서·최종견적서·자재리스트·참고파일) 내려받기. 로그인하고 그 현장을 볼 수 있는 사용자만 받을 수 있다.
+export async function GET(req: NextRequest, ctx: { params: Promise<{ siteId: string; kind: string }> }) {
   const session = await getSession();
   if (!session || session.mustChangePassword) return new Response("로그인이 필요합니다", { status: 401 });
 
@@ -26,7 +26,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ siteId: st
     console.error("[site-files] 현장정보 조회 실패:", error.message);
     return new Response("파일 정보를 읽지 못했습니다", { status: 500 });
   }
-  const info = parseSiteFile((data as Record<string, unknown> | null)?.[column]);
+  // 여러 파일 문서(참고파일)는 ?f=<저장 이름>으로 고른다
+  const files = parseSiteFiles((data as Record<string, unknown> | null)?.[column]);
+  const wanted = req.nextUrl.searchParams.get("f");
+  const info = isMultiSiteFileKind(kind) ? files.find((f) => f.stored === wanted) : files[0];
   if (!info) return new Response("파일을 찾을 수 없습니다", { status: 404 });
 
   const file = await readSiteFile(kind, info).catch((e: unknown) => {
