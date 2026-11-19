@@ -63,6 +63,20 @@ export function workerShare(amount: number, rates: WorkerRates = DEFAULT_WORKER_
   return Math.round((tier1 * rates.upTo5m + tier2 * rates.upTo10m + tier3 * rates.over10m) / 100);
 }
 
+/** 정산금액 계산 과정의 한 구간: 구간에 해당하는 금액 × 근로자 비율 */
+export type WorkerShareTier = { label: string; base: number; rate: number; amount: number };
+
+/** 정산금액의 구간별 계산 과정 (화면 설명용). 구간 금액은 원 단위 반올림이라 합이 정산금액과 1원 정도 다를 수 있다 */
+export function workerShareBreakdown(amount: number, rates: WorkerRates = DEFAULT_WORKER_RATES): WorkerShareTier[] {
+  const value = Math.max(amount, 0);
+  const tiers: [string, number, number][] = [
+    ["500만원 이하", Math.min(value, 5_000_000), rates.upTo5m],
+    ["500만원 초과 1,000만원 이하", Math.max(Math.min(value, 10_000_000) - 5_000_000, 0), rates.upTo10m],
+    ["1,000만원 초과", Math.max(value - 10_000_000, 0), rates.over10m],
+  ];
+  return tiers.map(([label, base, rate]) => ({ label, base, rate, amount: Math.round((base * rate) / 100) }));
+}
+
 export type SettlementSummaryValues = {
   /** 이익금액 합계 */
   profit: number;

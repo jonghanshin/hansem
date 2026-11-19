@@ -6,10 +6,18 @@ import { authorizeAction } from "@/lib/auth";
 import { computeSettlement, MAX_SETTLEMENT_SITES, type SettlementResult } from "@/lib/settlement";
 import { xlsxToCells } from "@/lib/excel-cells";
 import { cellsToRows, CSV_MAX_BYTES, csvToRows, decodeCsv, isUploadTable, UPLOAD_TABLES, type UploadTable } from "@/lib/settlement-upload";
-import { DEFAULT_WORKER_RATES, summarizeSettlement, type WorkerRates } from "@/lib/settlement-calc";
+import { summarizeSettlement, type WorkerRates } from "@/lib/settlement-calc";
 import { formatMoney, toMoney, type ActionResult } from "@/lib/sites";
-import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
-import { RESTRICTED_ROLE } from "@/lib/data-scope";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import {
+  checkRates,
+  findSettlementAccount,
+  ratesOf,
+  saveAccountRates,
+  type AppliedRates,
+  type SettlementAccount,
+} from "@/lib/settlement-account";
+import { RD_PUBLISH_COLUMNS, RD_PUBLISH_TABLE, type RdPublish } from "@/lib/rd-publish";
 
 /** 관리자 이상인지와 대상 테이블을 확인한다 */
 async function authorizeUpload(table: unknown): Promise<{ ok: true; table: UploadTable } | { ok: false; error: string }> {
@@ -113,53 +121,7 @@ function monthNumber(value: string | null | undefined): number | null {
   return n >= 1 && n <= 12 ? n : null;
 }
 
-/** 정산에 쓰는 영업사원의 권한 정보 */
-type SettlementAccount = {
-  영업사원ID: string | null;
-  이름: string | null;
-  역할: string | null;
-  정산시작월: string | null;
-  초기화여부: string | null;
-  "500이하": string | null;
-  "1000이하": string | null;
-  "1000초과": string | null;
-};
-
-/** 정산 대상 영업사원의 권한 행: 영업사원ID가 같은 계정, 없으면 이름이 같은 RD */
-async function findSettlementAccount(영업사원ID: string | null, 영업사원: string): Promise<SettlementAccount | null> {
-  const { data, error } = await getSupabaseAdmin()
-    .from(AUTH_TABLE)
-    .select('영업사원ID, 이름, 역할, 정산시작월, 초기화여부, "500이하", "1000이하", "1000초과"');
-  if (error) throw new Error(`권한 조회 실패: ${error.message}`);
-  const accounts = data as unknown as SettlementAccount[];
-  return (
-    (영업사원ID && accounts.find((a) => a.영업사원ID?.trim() === 영업사원ID)) ||
-    accounts.find((a) => a.이름?.trim() === 영업사원 && a.역할?.trim() === RESTRICTED_ROLE) ||
-    null
-  );
-}
-
-/** 정산에 쓰는 구간별 근로자 비율. 권한에 없거나 숫자가 아닌 구간은 기본 비율을 쓴다 */
-export type AppliedRates = WorkerRates & {
-  /** 기본 비율을 쓴 구간이 있으면 true */
-  usedDefault: boolean;
-};
-
-function ratesOf(account: SettlementAccount | null): AppliedRates {
-  let usedDefault = false;
-  const read = (value: string | null | undefined, fallback: number) => {
-    const n = Number(String(value ?? "").replace(/[%\s]/g, ""));
-    if (String(value ?? "").trim() !== "" && Number.isFinite(n) && n >= 0 && n <= 100) return n;
-    usedDefault = true;
-    return fallback;
-  };
-  const rates = {
-    upTo5m: read(account?.["500이하"], DEFAULT_WORKER_RATES.upTo5m),
-    upTo10m: read(account?.["1000이하"], DEFAULT_WORKER_RATES.upTo10m),
-    over10m: read(account?.["1000초과"], DEFAULT_WORKER_RATES.over10m),
-  };
-  return { ...rates, usedDefault };
-}
+export type { AppliedRates };
 
 /**
  * 권한.정산시작월 기준으로 3개월째 되는 달(시작월 포함 3개월 간격)인지.
@@ -256,14 +218,18 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
   const invalid = checkIds(ids);
   if (invalid) return { ok: false, error: invalid };
   try {
-    const { lines } = await computeSettlement(ids, auth.scope);
+    const computed = await computeSettlement(ids, auth.scope);
+    const { lines } = computed;
     if (lines.length === 0) return { ok: false, error: "정산할 미정산 현장이 없습니다" };
     const target = await singleTarget(lines);
     if (typeof target === "string") return { ok: false, error: target };
     const { 영업사원, 저장월: 정산월, 영업사원ID } = target;
     const account = await findSettlementAccount(영업사원ID, 영업사원);
     const carryIn = await fetchCarryIn(target, account);
-    const { profit, settlement, carryOver } = summarizeSettlement(lines, carryIn.금액, ratesOf(account));
+    const rates = ratesOf(account);
+    const { profit, settlement, carryOver } = summarizeSettlement(lines, carryIn.금액, rates);
+    // 정산내역에서 다시 볼 수 있게 계산한 정산결과(현장별 내역·누적이월금·비율)를 함께 저장한다
+    const snapshot: SettlementWithCarryIn = { ...computed, carryIn, rates };
     const record = {
       영업사원,
       영업사원ID,
@@ -284,9 +250,11 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
       .limit(1);
     if (findError) return { ok: false, error: `정산정보 조회 실패: ${findError.message}` };
     const existingId = (existing as unknown as { id: number }[])[0]?.id;
-    const { error } = existingId
-      ? await sb.from(SETTLEMENT_INFO_TABLE).update(record).eq("id", existingId)
-      : await sb.from(SETTLEMENT_INFO_TABLE).insert(record);
+    const write = (row: Record<string, unknown>) =>
+      existingId ? sb.from(SETTLEMENT_INFO_TABLE).update(row).eq("id", existingId) : sb.from(SETTLEMENT_INFO_TABLE).insert(row);
+    let { error } = await write({ ...record, 현장ids: lines.map((l) => l.id), 결과: snapshot });
+    // doc/정산정보_정산내역.sql을 아직 실행하지 않아 컬럼이 없으면 합계만 저장한다
+    if (error && isMissingColumn(error)) ({ error } = await write(record));
     if (error) return { ok: false, error: `정산정보 저장 실패: ${error.message}` };
 
     return {
@@ -312,6 +280,18 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
 /** 정산 계산 결과 + 전달 누적이월금·개인 비율 (영업사원·정산월이 하나씩일 때만, 아니면 null) */
 export type SettlementWithCarryIn = SettlementResult & { carryIn: CarryIn | null; rates: AppliedRates | null };
 
+/** 정산 내역 + (영업사원·정산월이 하나씩이면) 전달 누적이월금·개인 비율 */
+async function computeWithCarryIn(
+  ids: number[],
+  scope: Parameters<typeof computeSettlement>[1],
+): Promise<{ data: SettlementWithCarryIn; target: SettlementTarget | string }> {
+  const result = await computeSettlement(ids, scope);
+  const target = await singleTarget(result.lines);
+  if (typeof target === "string") return { data: { ...result, carryIn: null, rates: null }, target };
+  const account = await findSettlementAccount(target.영업사원ID, target.영업사원);
+  return { data: { ...result, carryIn: await fetchCarryIn(target, account), rates: ratesOf(account) }, target };
+}
+
 /** 관리자 이상 전용: 선택한 미정산 현장의 정산 내역 계산 (읽기 전용) */
 export async function computeSettlementAction(ids: number[]): Promise<ActionResult<SettlementWithCarryIn>> {
   const auth = await authorizeAction();
@@ -320,11 +300,7 @@ export async function computeSettlementAction(ids: number[]): Promise<ActionResu
   const invalid = checkIds(ids);
   if (invalid) return { ok: false, error: invalid };
   try {
-    const result = await computeSettlement(ids, auth.scope);
-    const target = await singleTarget(result.lines);
-    if (typeof target === "string") return { ok: true, data: { ...result, carryIn: null, rates: null } };
-    const account = await findSettlementAccount(target.영업사원ID, target.영업사원);
-    return { ok: true, data: { ...result, carryIn: await fetchCarryIn(target, account), rates: ratesOf(account) } };
+    return { ok: true, data: (await computeWithCarryIn(ids, auth.scope)).data };
   } catch (e) {
     return { ok: false, error: messageOf(e) };
   }
@@ -343,21 +319,230 @@ export type SettlementInfoRow = {
   누적이월금: string | null;
 };
 
-/** 관리자 이상 전용: 저장된 정산결과 목록 */
-export async function listSettlementInfoAction(): Promise<ActionResult<SettlementInfoRow[]>> {
+
+// ---------------------------------------------------------------------------
+// RD게시: 정산결과 저장 후 그 결과를 영업사원(RD)에게 게시 기간 동안 보여준다
+// ---------------------------------------------------------------------------
+
+export type { RdPublish };
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function periodError(시작일: string, 종료일: string): string | null {
+  if (!ISO_DATE.test(시작일 ?? "") || !ISO_DATE.test(종료일 ?? "")) return "시작일과 종료일을 선택하세요";
+  if (시작일 > 종료일) return "종료일은 시작일과 같거나 뒤여야 합니다";
+  return null;
+}
+
+/** 관리자 이상 전용: 영업사원·정산월의 게시 정보 (없으면 null) */
+export async function getRdPublishAction(영업사원: string, 정산월: string): Promise<ActionResult<RdPublish | null>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "권한이 없습니다" };
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(RD_PUBLISH_TABLE)
+      .select(RD_PUBLISH_COLUMNS)
+      .eq("영업사원", String(영업사원 ?? "").trim())
+      .eq("정산월", String(정산월 ?? "").trim())
+      .maybeSingle();
+    if (error) return { ok: false, error: `RD게시 조회 실패: ${error.message}` };
+    return { ok: true, data: (data as unknown as RdPublish | null) ?? null };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+/** 관리자 이상 전용: 모든 게시 (RD게시 현황, 최근 시작일 순) */
+export async function listRdPublishAction(): Promise<ActionResult<RdPublish[]>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "권한이 없습니다" };
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(RD_PUBLISH_TABLE)
+      .select(RD_PUBLISH_COLUMNS)
+      .order("시작일", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1000);
+    if (error) return { ok: false, error: `RD게시 조회 실패: ${error.message}` };
+    const rows = (data as unknown as RdPublish[]).filter((r) => !auth.exclusion.names.includes(r.영업사원?.trim() ?? ""));
+    return { ok: true, data: rows };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+/**
+ * 관리자 이상 전용: 선택한 현장의 정산결과를 게시한다. 서버에서 다시 계산한 결과를 그대로 저장해 두고,
+ * RD에게는 게시 기간 동안 이 결과를 보여준다. 같은 영업사원·정산월이 있으면 결과와 기간을 새로 고쳐 쓴다.
+ */
+export async function publishRdAction(ids: number[], 시작일: string, 종료일: string): Promise<ActionResult<RdPublish>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "권한이 없습니다" };
+  const invalid = checkIds(ids) ?? periodError(시작일, 종료일);
+  if (invalid) return { ok: false, error: invalid };
+  try {
+    const { data: result, target } = await computeWithCarryIn(ids, auth.scope);
+    if (result.lines.length === 0) return { ok: false, error: "게시할 미정산 현장이 없습니다" };
+    if (typeof target === "string") return { ok: false, error: target.replace("저장하세요", "게시하세요") };
+    const { data, error } = await getSupabaseAdmin()
+      .from(RD_PUBLISH_TABLE)
+      .upsert(
+        {
+          영업사원: target.영업사원,
+          영업사원ID: target.영업사원ID,
+          정산월: target.정산월,
+          시작일,
+          종료일,
+          게시자: auth.name,
+          수정일시: new Date().toISOString(),
+          현장ids: result.lines.map((l) => l.id),
+          // 구간별 비율은 RD에게 보이면 안 되므로 저장하지 않는다 (RD 화면은 서버에서 권한 테이블 비율로 계산)
+          결과: { ...result, rates: null },
+        },
+        { onConflict: "영업사원,정산월" },
+      )
+      .select(RD_PUBLISH_COLUMNS)
+      .single();
+    if (error) return { ok: false, error: `RD게시 저장 실패: ${error.message}` };
+    return { ok: true, data: data as unknown as RdPublish };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+/** 관리자 이상 전용: 게시 기간만 변경 (게시한 정산결과는 그대로) */
+export async function updateRdPublishPeriodAction(id: number, 시작일: string, 종료일: string): Promise<ActionResult<RdPublish>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "권한이 없습니다" };
+  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: "잘못된 id입니다" };
+  const invalid = periodError(시작일, 종료일);
+  if (invalid) return { ok: false, error: invalid };
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(RD_PUBLISH_TABLE)
+      .update({ 시작일, 종료일, 게시자: auth.name, 수정일시: new Date().toISOString() })
+      .eq("id", id)
+      .select(RD_PUBLISH_COLUMNS)
+      .maybeSingle();
+    if (error) return { ok: false, error: `RD게시 변경 실패: ${error.message}` };
+    if (!data) return { ok: false, error: "게시 정보를 찾을 수 없습니다 (이미 취소되었을 수 있습니다)" };
+    return { ok: true, data: data as unknown as RdPublish };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+/** 관리자 이상 전용: 게시 취소 (그 RD에게 정산 메뉴가 바로 사라진다) */
+export async function cancelRdPublishAction(id: number): Promise<ActionResult<null>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "권한이 없습니다" };
+  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: "잘못된 id입니다" };
+  try {
+    const { error } = await getSupabaseAdmin().from(RD_PUBLISH_TABLE).delete().eq("id", id);
+    if (error) return { ok: false, error: `RD게시 취소 실패: ${error.message}` };
+    return { ok: true, data: null };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+/**
+ * 관리자 이상 전용: 영업사원의 구간별 근로자 비율을 권한 테이블에 저장한다.
+ * 이후 정산 계산·정산결과 저장·RD게시와 RD 화면 모두 이 비율을 쓴다.
+ */
+export async function saveWorkerRatesAction(
+  영업사원ID: string | null,
+  영업사원: string,
+  rates: WorkerRates,
+): Promise<ActionResult<AppliedRates>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "권한이 없습니다" };
+  const name = String(영업사원 ?? "").trim();
+  if (!name) return { ok: false, error: "영업사원이 한 명인 현장을 골라 비율을 저장하세요" };
+  const checked = checkRates(rates);
+  if (typeof checked === "string") return { ok: false, error: checked };
+  try {
+    const account: SettlementAccount | null = await findSettlementAccount(영업사원ID?.trim() || null, name);
+    if (!account) return { ok: false, error: `권한 테이블에서 영업사원 '${name}'을(를) 찾을 수 없습니다` };
+    await saveAccountRates(account.id, checked);
+    return { ok: true, data: { ...checked, usedDefault: false } };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 정산내역: 지금까지 저장한 정산결과를 RD별로 보고, 저장할 때의 상세 결과를 다시 본다
+// ---------------------------------------------------------------------------
+
+/** 컬럼이 없어서 난 오류인지 (PostgREST PGRST204 / Postgres 42703) */
+function isMissingColumn(error: { code?: string; message: string }): boolean {
+  return (
+    error.code === "PGRST204" ||
+    error.code === "42703" ||
+    /could not find the .* column|column .* does not exist/i.test(error.message)
+  );
+}
+
+/** 정산내역 목록의 한 행 */
+export type SettlementHistoryRow = SettlementInfoRow & {
+  /** 저장할 때의 현장 수 (상세 결과가 없으면 null) */
+  현장수: number | null;
+};
+
+const HISTORY_COLUMNS = "id, created_at, 영업사원, 영업사원ID, 정산월, 총이익금, 정산금, 이월금, 누적이월금";
+
+/** 관리자 이상 전용: 저장한 정산 내역 (정산월 최근 순) */
+export async function listSettlementHistoryAction(): Promise<ActionResult<SettlementHistoryRow[]>> {
   const auth = await authorizeAction();
   if (!auth.ok) return auth;
   if (!auth.canApprove) return { ok: false, error: "정산 권한이 없습니다" };
   try {
+    const query = (columns: string) =>
+      getSupabaseAdmin()
+        .from(SETTLEMENT_INFO_TABLE)
+        .select(columns)
+        .order("정산월", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(5000);
+    let { data, error } = await query(`${HISTORY_COLUMNS}, 현장ids`);
+    if (error && isMissingColumn(error)) ({ data, error } = await query(HISTORY_COLUMNS));
+    if (error) return { ok: false, error: `정산정보 조회 실패: ${error.message}` };
+    const rows = (data as unknown as (SettlementInfoRow & { 현장ids?: number[] | null })[])
+      .filter((r) => !auth.exclusion.names.includes(r.영업사원?.trim() ?? ""))
+      .map(({ 현장ids, ...r }) => ({ ...r, 현장수: 현장ids?.length ? 현장ids.length : null }));
+    return { ok: true, data: rows };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+/** 관리자 이상 전용: 정산정보 한 건의 저장 당시 정산결과 (예전에 저장해 상세가 없으면 null) */
+export async function getSettlementHistoryDetailAction(id: number): Promise<ActionResult<SettlementWithCarryIn | null>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "정산 권한이 없습니다" };
+  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: "잘못된 id입니다" };
+  try {
     const { data, error } = await getSupabaseAdmin()
       .from(SETTLEMENT_INFO_TABLE)
-      .select("*")
-      .order("id", { ascending: false })
-      .limit(5000);
-    if (error) return { ok: false, error: `정산정보 조회 실패: ${error.message}` };
-    // 열외 계정의 정산결과는 열외가 아닌 사용자에게 보이지 않는다
-    const rows = (data as unknown as SettlementInfoRow[]).filter((r) => !auth.exclusion.names.includes(r.영업사원?.trim() ?? ""));
-    return { ok: true, data: rows };
+      .select("영업사원, 결과")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) {
+      if (isMissingColumn(error)) return { ok: true, data: null };
+      return { ok: false, error: `정산정보 조회 실패: ${error.message}` };
+    }
+    const row = data as unknown as { 영업사원: string | null; 결과: SettlementWithCarryIn | null } | null;
+    if (!row) return { ok: false, error: "정산정보를 찾을 수 없습니다" };
+    if (auth.exclusion.names.includes(row.영업사원?.trim() ?? "")) return { ok: false, error: "정산정보를 찾을 수 없습니다" };
+    return { ok: true, data: row.결과 ?? null };
   } catch (e) {
     return { ok: false, error: messageOf(e) };
   }

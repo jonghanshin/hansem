@@ -267,6 +267,21 @@ function toNote(value: unknown): string | null {
   return toText(value === null || value === undefined ? value : String(value).replace(/\r\n?/g, "\n"));
 }
 
+/** 정산월이 정해지지 않았을 때 화면에 보여주는 값 (저장 값은 null) */
+export const SETTLEMENT_MONTH_UNSET = "미정";
+
+/**
+ * 정산월 자동 계산: 완료일의 달, 완료일이 없으면 완료예정일의 달 ("2026-11-10" → "11월").
+ * 둘 다 없거나 날짜로 읽을 수 없으면 null (화면에는 '미정').
+ */
+export function settlementMonthOf(완료일: unknown, 완료예정일: unknown): string | null {
+  for (const value of [완료일, 완료예정일]) {
+    const iso = toIsoDate(value);
+    if (iso) return `${Number(iso.slice(5, 7))}월`;
+  }
+  return null;
+}
+
 /** 임의의 입력값을 검증/정규화한다. 서버 액션에서 반드시 이 함수를 거쳐 저장한다. */
 export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>): {
   data: SiteInput;
@@ -311,6 +326,9 @@ export function normalizeSiteInput(raw: Partial<Record<SiteFieldKey, unknown>>):
   if (HANSEM_PARTS.some((k) => data[k] !== null)) {
     data.한샘상품가액 = HANSEM_PARTS.reduce((acc, k) => acc + ((data[k] as number | null) ?? 0), 0);
   }
+
+  // 정산월은 입력값을 쓰지 않고 완료일(없으면 완료예정일)의 달로 정한다
+  data.정산월 = settlementMonthOf(data.완료일, data.완료예정일);
 
   // 정산여부: 정산완료 / 미정산 / 대상아님 중 하나 (예전 표기 NA 등은 바꿔서 저장)
   if (typeof data.정산여부 === "string") {

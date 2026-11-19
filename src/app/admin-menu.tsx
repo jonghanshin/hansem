@@ -4,13 +4,18 @@ import { NavMenuLinks } from "@/app/(menu)/menu-nav";
 import { ADMIN_MENU, MANAGER_MENU } from "@/app/menu";
 import { getSession } from "@/lib/auth";
 import { canApprove, isSuperAdmin } from "@/lib/data-scope";
+import { hasActiveRdPublish } from "@/lib/rd-publish";
 
-// 역할별 메뉴 (정산: 관리자 이상, 대시보드: 슈퍼관리자). 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
+// 역할별 메뉴 (정산: 관리자 이상 + RD게시 기간 중인 RD, 대시보드: 슈퍼관리자). 쿠키를 읽으므로 <Suspense> 안에서 렌더링한다.
 
 async function roleMenus() {
   const session = await getSession();
+  const manager = canApprove(session);
+  // RD는 관리자가 게시한 기간 동안만 정산 메뉴를 본다
+  const rdPublished = !manager && (await hasActiveRdPublish(session));
   return [
-    ...(canApprove(session) ? MANAGER_MENU.map((m) => ({ ...m, badge: "관리자" })) : []),
+    ...(manager ? MANAGER_MENU.map((m) => ({ ...m, badge: "관리자" })) : []),
+    ...(rdPublished ? MANAGER_MENU.map((m) => ({ ...m, description: "관리자가 게시한 정산월의 내 현장 정산 내역", badge: "게시" })) : []),
     ...(isSuperAdmin(session) ? ADMIN_MENU.map((m) => ({ ...m, badge: "슈퍼관리자" })) : []),
   ];
 }

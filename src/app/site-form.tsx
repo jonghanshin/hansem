@@ -15,7 +15,9 @@ import {
   HANSEM_PARTS,
   isComputedField,
   normalizeSettlement,
+  SETTLEMENT_MONTH_UNSET,
   SETTLEMENT_OPTIONS,
+  settlementMonthOf,
   SITE_FIELDS,
   SITE_NOTE_MAX_LENGTH,
   toMoney,
@@ -362,6 +364,26 @@ export function SiteForm({
                         ))}
                       </select>
                     </label>
+                  );
+                }
+                if (key === "정산월") {
+                  const month = settlementMonthOf(values.완료일, values.완료예정일);
+                  const info = "완료일의 달 (완료일이 없으면 완료예정일의 달)";
+                  return (
+                    <div key={key}>
+                      <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-700">
+                        {fieldLabel(key)}
+                        <span className="rounded bg-blue-50 px-1 py-px text-[10px] font-semibold text-blue-700" title={info}>
+                          자동
+                        </span>
+                      </span>
+                      <div
+                        title={info}
+                        className={`w-full rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-sm ${month ? "text-zinc-900" : "text-zinc-400"}`}
+                      >
+                        {month ?? SETTLEMENT_MONTH_UNSET}
+                      </div>
+                    </div>
                   );
                 }
                 if (key === "특이사항") {
