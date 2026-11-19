@@ -1594,6 +1594,11 @@ function HansemOrders({ hansem, netOfVat }: { hansem: SettlementLine["한샘"]; 
             </td>
           </tr>
         )}
+        <tr className="font-medium">
+          <td colSpan={netOfVat ? 4 : 5} className="px-3 py-2">AS 및 기타비용</td>
+          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(0)}</td>
+          <td colSpan={netOfVat ? 2 : 4} />
+        </tr>
         <tr>
           <td colSpan={netOfVat ? 4 : 5} className="px-3 py-2">{netOfVat ? "한샘(부가세제외) 합계" : "한샘(부가세포함) 합계"}</td>
           <td className={`px-3 py-2 ${NUM}`}>{formatMoney(netOfVat ? withoutVat(grossTotal) : grossTotal)}</td>
