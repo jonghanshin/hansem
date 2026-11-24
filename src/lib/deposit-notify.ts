@@ -5,7 +5,7 @@ import "server-only";
 
 import { APPROVER_ROLES, PRIVATE_SITE_NUMBERS, SUPER_ADMIN_ROLE } from "@/lib/data-scope";
 import type { DepositRow } from "@/lib/deposits";
-import { KAKAO_TEMPLATES, sendAlimtalk } from "@/lib/kakao";
+import { deliveryNumber, KAKAO_TEMPLATES, sendAlimtalk } from "@/lib/kakao";
 import { AUTH_TABLE, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type Account = { id: number; 이름: string | null; 역할: string | null; 전화번호?: string | null };
@@ -32,8 +32,20 @@ async function sendToAll(row: DepositRow, recipients: Account[], status: NotifyS
   if (withPhone.length < recipients.length) {
     console.error(`[알림톡:${label}] 전화번호 번호가 없어 ${recipients.length - withPhone.length}명을 건너뜁니다`);
   }
+  // 같은 번호로 동시에 여러 건 보내면 솔라피가 1069(반복 발송)로 거부한다.
+  // 테스트 수신번호가 설정됐거나 여러 계정이 같은 번호를 쓰는 경우 번호당 1건만 보낸다.
+  const seen = new Set<string>();
+  const unique = withPhone.filter((a) => {
+    const key = deliveryNumber(a.전화번호!) ?? a.전화번호!;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (unique.length < withPhone.length) {
+    console.log(`[알림톡:${label}] 같은 수신번호 ${withPhone.length - unique.length}건은 중복이라 생략합니다`);
+  }
   const results = await Promise.all(
-    withPhone.map((a) =>
+    unique.map((a) =>
       sendAlimtalk({
         to: a.전화번호!,
         templateId,

@@ -58,6 +58,16 @@ export function normalizePhone(value: string): string | null {
   return /^0\d{8,10}$/.test(digits) ? digits : null;
 }
 
+/**
+ * 실제로 메시지가 도착할 번호 (SOLAPI_TEST_RECIPIENT가 있으면 그 번호). 형식이 틀리면 null.
+ * 같은 번호로 짧은 시간에 여러 건을 보내면 솔라피가 1069로 거부하므로, 여러 명에게 보낼 때 중복 제거에 쓴다.
+ */
+export function deliveryNumber(to: string): string | null {
+  const original = normalizePhone(to);
+  if (!original) return null;
+  return normalizePhone(process.env.SOLAPI_TEST_RECIPIENT ?? "") ?? original;
+}
+
 /** 알림톡 템플릿 ID (환경 변수). 없으면 null */
 export const KAKAO_TEMPLATES = {
   /** 입금 관련 알림 — 변수: 임직원, 고객명, RD, 현장번호, 금액, 입금구분 */
