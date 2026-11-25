@@ -17,6 +17,7 @@ import {
   type AppliedRates,
   type CarryIn,
   type SavedSettlement,
+  type SettlementExtraCostDeduction,
   type SettlementHistoryRow,
   type SettlementWithCarryIn,
 } from "@/app/settlement-actions";
@@ -26,6 +27,7 @@ import type { SettlementCandidate, SettlementDeposit, SettlementExtraCost, Settl
 import { UPLOAD_TABLE_KEYS, UPLOAD_TABLES, type UploadTable } from "@/lib/settlement-upload";
 import {
   DEDUCTION,
+  extraCostDeduction,
   netOutflowParts,
   netProfit,
   outflowParts,
@@ -160,6 +162,7 @@ function SettlementSummary({
   lines,
   ids,
   carryIn,
+  extraCost,
   rates,
   readOnly = false,
   fixedSummary = null,
@@ -168,6 +171,8 @@ function SettlementSummary({
   lines: SettlementLine[];
   ids: number[];
   carryIn: CarryIn | null;
+  /** 정산월 전달 그 영업사원의 추가시공비 (예전에 저장한 결과나 영업사원·정산월이 여럿이면 null) */
+  extraCost: SettlementExtraCostDeduction | null;
   rates: AppliedRates | null;
   /** RD가 보는 정산 화면: 저장·RD게시 버튼을 숨긴다 */
   readOnly?: boolean;
@@ -195,7 +200,8 @@ function SettlementSummary({
   const [rateError, setRateError] = useState<string | null>(null);
   const [rateMessage, setRateMessage] = useState<string | null>(null);
   const [ratePending, startRateTransition] = useTransition();
-  const { profit, target, settlement, carryOver } = fixedSummary ?? summarizeSettlement(lines, carryIn?.금액 ?? 0, appliedRates);
+  const { profit, target, settlement, carryOver } = fixedSummary ?? summarizeSettlement(lines, carryIn?.금액 ?? 0, appliedRates, extraCost);
+  const [showExtra, setShowExtra] = useState(false);
   const pct = (n: number) => `${n}%`;
   const [saved, setSaved] = useState<SavedSettlement | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -238,11 +244,25 @@ function SettlementSummary({
     });
   }
 
-  const items: [string, number][] = [
-    ["이익금액 합계", profit],
-    ["공제금", -DEDUCTION],
-    ...(carryIn ? [["전달 누적이월금", -carryIn.금액] as [string, number]] : []),
-    ["정산대상금액", target],
+  const items: { label: React.ReactNode; key: string; value: number; extra?: boolean }[] = [
+    { key: "profit", label: "이익금액 합계", value: profit },
+    { key: "deduction", label: "공제금", value: -DEDUCTION },
+    // 추가시공비가 없어도(0원) 항상 보여준다
+    {
+      key: "extra",
+      label: (
+        <>
+          {extraCost ? extraCostLabel(extraCost) : "추가시공비"}{" "}
+          <span className="text-xs text-zinc-500">
+            {extraCost ? `${extraCost.내역.length}건 · 부가세제외` : single ? "예전 결과" : "영업사원·정산월 하나씩 선택 시 계산"}
+          </span>
+        </>
+      ),
+      value: -extraCostDeduction(extraCost),
+      extra: true,
+    },
+    ...(carryIn ? [{ key: "carryIn", label: "전달 누적이월금", value: -carryIn.금액 }] : []),
+    { key: "target", label: "정산대상금액", value: target },
   ];
 
   function save() {
@@ -336,10 +356,17 @@ function SettlementSummary({
           )}
         </div>
         <dl className="w-full max-w-sm space-y-1">
-          {items.map(([label, value]) => (
-            <div key={label} className="flex justify-between gap-6">
-              <dt className="text-zinc-600">{label}</dt>
-              <dd className="tabular-nums text-zinc-900">{formatMoney(value)}</dd>
+          {items.map((item) => (
+            <div key={item.key} className="flex justify-between gap-6">
+              <dt className="text-zinc-600">{item.label}</dt>
+              <dd className="flex items-center tabular-nums text-zinc-900">
+                {formatMoney(item.value)}
+                {item.extra && extraCost && (
+                  <span className="ml-2">
+                    <ToggleButton open={showExtra} onClick={() => setShowExtra((v) => !v)} />
+                  </span>
+                )}
+              </dd>
             </div>
           ))}
           <div className="flex justify-between gap-6 border-t border-zinc-200 pt-1 font-semibold">
@@ -350,10 +377,27 @@ function SettlementSummary({
           </div>
         </dl>
       </div>
+      {showExtra && extraCost && (
+        <div className="mt-3 space-y-1">
+          <p className="text-xs text-zinc-600">
+            {extraCostLabel(extraCost)} 내역 · 합계 {formatMoney(extraCost.합계)}원(부가세포함) → 부가세제외{" "}
+            {formatMoney(extraCostDeduction(extraCost))}원 공제
+          </p>
+          <div className="overflow-x-auto rounded-md border border-zinc-200 bg-white">
+            {extraCost.내역.length > 0 ? (
+              <ExtraCostTable rows={extraCost.내역} total={extraCost.합계} />
+            ) : (
+              <p className="p-4 text-center text-sm text-zinc-500">
+                {Number(extraCost.기준월.slice(5, 7))}월에 시공시작한 추가시공비 내역이 없습니다.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
       <div className="mt-3 border-t border-zinc-200 pt-2 text-xs leading-relaxed text-zinc-600">
         <p>이익금액 = 계약금(부가세제외) - 총출금액 합계</p>
-        <p>{extraCostLabel()} = 현재 기준 이전 달의 모든 추가시공비를 합산한 금액 (한샘 금액에 포함)</p>
-        <p>정산대상금액 = 이익금액 합계 - 공제금({formatMoney(DEDUCTION)}원) - 전달 누적이월금</p>
+        <p>추가시공비 = 정산월 전달에 시공시작한 해당 영업사원의 모든 한샘추가시공비 합계 (부가세제외 금액으로 공제)</p>
+        <p>정산대상금액 = 이익금액 합계 - 공제금({formatMoney(DEDUCTION)}원) - 추가시공비 - 전달 누적이월금</p>
         <p>정산대상금액이 -이면 그 금액만큼 이월금액(= 이번 달 누적이월금), +이면 {readOnly ? "구간별 비율로 계산한 " : "아래 공식으로 계산한 "}정산금액(근로자 몫)을 표시하고 누적이월금은 0이 됩니다.</p>
         {/* 정산금액을 어떤 비율로 계산했는지 (RD 화면은 이 설명만, 비율 수정·공식·예시는 관리자 화면에만) */}
         {(() => {
@@ -582,6 +626,7 @@ function SettlementResultSections({
           lines={result.lines}
           ids={ids}
           carryIn={result.carryIn}
+          extraCost={result.extraCost ?? null}
           rates={result.rates}
           readOnly={readOnly}
           fixedSummary={fixedSummary}
@@ -1448,7 +1493,7 @@ function DetailButton({ onClick }: { onClick: () => void }) {
 
 function hasOutflowDetail(line: SettlementLine, group: OutflowGroup) {
   return group === "한샘"
-    ? line.한샘.주문.length > 0 || line.한샘.추가시공비내역.length > 0
+    ? line.한샘.주문.length > 0 || (line.한샘.추가시공비 ?? 0) !== 0
     : outflowRows(line, group).length > 0;
 }
 
@@ -1504,8 +1549,7 @@ function DepositDetailDialog({
           {group === "한샘" ? (
             <>
               <p className="px-3 py-2 text-xs text-zinc-500 tabular-nums">
-                공급가(HS) {formatMoney(line.한샘["공급가(HS)"])} · 공급가(S1) {formatMoney(line.한샘["공급가(S1)"])} · {extraCostLabel()}{" "}
-                {formatMoney(netOfVat ? withoutVat(line.한샘.추가시공비) : line.한샘.추가시공비)}
+                공급가(HS) {formatMoney(line.한샘["공급가(HS)"])} · 공급가(S1) {formatMoney(line.한샘["공급가(S1)"])}
               </p>
               <HansemOrders hansem={line.한샘} netOfVat={netOfVat} />
             </>
@@ -1520,19 +1564,18 @@ function DepositDetailDialog({
   );
 }
 
-/** 추가시공비는 정산하는 날 기준 이전 달 것이다 (11월 19일 정산 → "추가시공비(10월)") */
-function extraCostLabel(today = new Date()) {
-  const prevMonth = today.getMonth() === 0 ? 12 : today.getMonth();
-  return `추가시공비(${prevMonth}월)`;
+/** 추가시공비는 정산월 전달 것이다 (11월 정산 → "추가시공비(10월)") */
+function extraCostLabel(extraCost: SettlementExtraCostDeduction) {
+  return `추가시공비(${Number(extraCost.기준월.slice(5, 7))}월)`;
 }
 
 const vatOf = (amount: number | null) => (amount === null ? null : withVat(amount));
 
 /** 한샘주문진도정보의 확정 주문별 공급가 */
 function HansemOrders({ hansem, netOfVat }: { hansem: SettlementLine["한샘"]; netOfVat: boolean }) {
-  const [showExtra, setShowExtra] = useState(false);
   // 세로 합계가 표와 맞도록 주문별 부가세 포함 금액을 더한다
-  const grossTotal = hansem["공급가(부가세포함)"] + hansem.추가시공비;
+  // 예전에 저장한 정산결과는 현장별 추가시공비가 한샘 금액에 들어 있다
+  const grossTotal = hansem["공급가(부가세포함)"] + (hansem.추가시공비 ?? 0);
   const vatTotal = (key: "공급가(HS)" | "공급가(S1)") => hansem.주문.reduce((acc, o) => acc + withVat(o[key] ?? 0), 0);
   return (
     <table className="min-w-full text-sm">
@@ -1577,24 +1620,6 @@ function HansemOrders({ hansem, netOfVat }: { hansem: SettlementLine["한샘"]; 
           {!netOfVat && <td className={`px-3 py-2 ${NUM}`}>{formatMoney(vatTotal("공급가(S1)"))}</td>}
         </tr>
         <tr className="font-medium">
-          <td colSpan={netOfVat ? 4 : 5} className="px-3 py-2">
-            {extraCostLabel()} <span className="ml-1 text-xs font-normal text-zinc-500">{hansem.추가시공비내역.length}건</span>
-          </td>
-          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(netOfVat ? withoutVat(hansem.추가시공비) : hansem.추가시공비)}</td>
-          <td colSpan={netOfVat ? 2 : 4} className="px-3 py-2">
-            {hansem.추가시공비내역.length > 0 && <ToggleButton open={showExtra} onClick={() => setShowExtra((v) => !v)} />}
-          </td>
-        </tr>
-        {showExtra && (
-          <tr>
-            <td colSpan={netOfVat ? 7 : 10} className="bg-zinc-50 p-3 font-normal">
-              <div className="overflow-x-auto rounded-md border border-zinc-200 bg-white">
-                <ExtraCostTable rows={hansem.추가시공비내역} />
-              </div>
-            </td>
-          </tr>
-        )}
-        <tr className="font-medium">
           <td colSpan={netOfVat ? 4 : 5} className="px-3 py-2">AS 및 기타비용</td>
           <td className={`px-3 py-2 ${NUM}`}>{formatMoney(0)}</td>
           <td colSpan={netOfVat ? 2 : 4} />
@@ -1609,13 +1634,15 @@ function HansemOrders({ hansem, netOfVat }: { hansem: SettlementLine["한샘"]; 
   );
 }
 
-/** 현장의 한샘추가시공비 테이블 행 목록 */
-function ExtraCostTable({ rows }: { rows: SettlementExtraCost[] }) {
+/** 정산월 전달 영업사원의 한샘추가시공비 행 목록 */
+function ExtraCostTable({ rows, total }: { rows: SettlementExtraCost[]; total: number }) {
   return (
     <table className="min-w-full text-sm">
       <thead className="bg-zinc-100 text-xs text-zinc-600">
         <tr>
           <th className={`${TH} text-left`}>시공시작일</th>
+          <th className={`${TH} text-left`}>현장코드</th>
+          <th className={`${TH} text-left`}>고객</th>
           <th className={`${TH} text-left`}>요청번호</th>
           <th className={`${TH} text-left`}>시공유형</th>
           <th className={`${TH} text-left`}>항목</th>
@@ -1628,8 +1655,10 @@ function ExtraCostTable({ rows }: { rows: SettlementExtraCost[] }) {
       </thead>
       <tbody>
         {rows.map((r, i) => (
-          <tr key={`${r.요청번호 ?? "none"}-${i}`} className="text-zinc-700">
+          <tr key={`${r.현장코드 ?? ""}-${r.요청번호 ?? "none"}-${i}`} className="text-zinc-700">
             <td className={`${TD} tabular-nums`}>{r.시공시작일}</td>
+            <td className={`${TD} tabular-nums`}>{r.현장코드}</td>
+            <td className={TD}>{r.고객}</td>
             <td className={`${TD} tabular-nums`}>{r.요청번호}</td>
             <td className={TD}>{r.시공유형}</td>
             <td className={TD}>{r.항목}</td>
@@ -1643,6 +1672,12 @@ function ExtraCostTable({ rows }: { rows: SettlementExtraCost[] }) {
           </tr>
         ))}
       </tbody>
+      <tfoot className="bg-zinc-100 font-semibold">
+        <tr>
+          <td colSpan={10} className="px-3 py-2">합계 (부가세포함)</td>
+          <td className={`px-3 py-2 ${NUM}`}>{formatMoney(total)}</td>
+        </tr>
+      </tfoot>
     </table>
   );
 }

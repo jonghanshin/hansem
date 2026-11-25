@@ -47,7 +47,7 @@ export type SettlementLine = {
   계약금: number | null;
   /** 입금내역 중 입출금 = 입금 */
   총입금액: number;
-  /** 한샘주문진도정보 확정 주문의 공급가(부가세 포함) + 한샘추가시공비 테이블 합계 + 입금내역 중 입출금 = 출금 */
+  /** 한샘주문진도정보 확정 주문의 공급가(부가세 포함) + 입금내역 중 입출금 = 출금 (추가시공비는 영업사원·정산월 단위로 따로 공제) */
   총출금액: number;
   입금내역: SettlementDeposit[];
   출금내역: SettlementDeposit[];
@@ -56,6 +56,8 @@ export type SettlementLine = {
 
 /** 한샘추가시공비 테이블의 한 행 */
 export type SettlementExtraCost = {
+  현장코드: string | null;
+  고객: string | null;
   요청번호: number | null;
   시공시작일: string | null;
   시공유형: string | null;
@@ -69,19 +71,34 @@ export type SettlementExtraCost = {
   시공비원문: string | null;
 };
 
-/** 총출금액의 한샘 부분: 한샘주문진도정보의 확정 주문 공급가(부가세 포함) + 한샘추가시공비 테이블의 현장별 합계 */
+/** 총출금액의 한샘 부분: 한샘주문진도정보의 확정 주문 공급가(부가세 포함) */
 export type SettlementHansem = {
   공급가: number;
   /** 주문별 부가세 포함 금액의 합 (상세 표의 세로 합계와 일치) */
   "공급가(부가세포함)": number;
   "공급가(HS)": number;
   "공급가(S1)": number;
-  추가시공비: number;
-  추가시공비내역: SettlementExtraCost[];
+  /**
+   * 예전에 저장·게시한 정산결과 호환용: 그때는 현장별 추가시공비를 한샘 금액에 더했다.
+   * 지금은 계산하지 않고(없음), 영업사원·정산월 단위 추가시공비(SettlementExtraCostDeduction)로 공제한다.
+   */
+  추가시공비?: number;
+  추가시공비내역?: SettlementExtraCost[];
   주문: HansemOrderLine[];
 };
 
+/** 정산대상금액에서 빼는 추가시공비: 정산월 전달에 시공시작한 그 영업사원의 모든 한샘추가시공비 */
+export type SettlementExtraCostDeduction = {
+  /** 합산한 달 ("2026-10") */
+  기준월: string;
+  /** 시공비 합계 (부가세 포함, 숫자로 읽을 수 없는 행은 뺌) */
+  합계: number;
+  내역: SettlementExtraCost[];
+};
+
 type ExtraCostRecord = {
+  현장코드: string | null;
+  고객: string | null;
   요청번호: number | null;
   시공시작일: string | null;
   시공유형: string | null;
@@ -93,15 +110,26 @@ type ExtraCostRecord = {
   시공비: string | null;
 };
 
-/** 현장코드가 일치하는 한샘추가시공비 행 */
-async function fetchExtraCosts(siteNumber: string): Promise<SettlementExtraCost[]> {
+/** "2026-10" → "2026-11" */
+function nextYearMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+}
+
+/** 영업사원의 기준월(시공시작일 기준) 한샘추가시공비 행과 합계 */
+export async function fetchExtraCostDeduction(영업사원: string, 기준월: string): Promise<SettlementExtraCostDeduction> {
   const { data, error } = await getSupabaseAdmin()
     .from(HANSEM_EXTRA_COST_TABLE)
     .select("*")
-    .eq("현장코드", siteNumber)
-    .order("시공시작일", { ascending: true });
+    .eq("영업사원", 영업사원)
+    .gte("시공시작일", `${기준월}-01`)
+    .lt("시공시작일", `${nextYearMonth(기준월)}-01`)
+    .order("시공시작일", { ascending: true })
+    .order("현장코드", { ascending: true });
   if (error) throw new Error(`한샘추가시공비 조회 실패: ${error.message}`);
-  return (data as unknown as ExtraCostRecord[]).map((r) => ({
+  const 내역 = (data as unknown as ExtraCostRecord[]).map((r) => ({
+    현장코드: r.현장코드,
+    고객: r.고객,
     요청번호: r.요청번호,
     시공시작일: r.시공시작일,
     시공유형: r.시공유형,
@@ -113,6 +141,7 @@ async function fetchExtraCosts(siteNumber: string): Promise<SettlementExtraCost[
     시공비: toMoney(r.시공비) ?? null,
     시공비원문: r.시공비,
   }));
+  return { 기준월, 합계: 내역.reduce((acc, r) => acc + (r.시공비 ?? 0), 0), 내역 };
 }
 
 export type SettlementResult = { lines: SettlementLine[]; warnings: string[] };
@@ -177,15 +206,13 @@ export async function computeSettlement(ids: number[], scope: DataScope): Promis
   for (let i = 0; i < numberList.length; i += CONCURRENCY) {
     await Promise.all(
       numberList.slice(i, i + CONCURRENCY).map(async (no) => {
-        const [source, 추가시공비내역] = await Promise.all([fetchComputedSources(no, "한샘공급가합계"), fetchExtraCosts(no)]);
+        const source = await fetchComputedSources(no, "한샘공급가합계");
         const 주문 = source.kind === "orders" ? source.rows : [];
         hansem.set(no, {
           공급가: source.total,
           "공급가(부가세포함)": 주문.reduce((acc, o) => acc + withVat(o.공급가 ?? 0), 0),
           "공급가(HS)": 주문.reduce((acc, o) => acc + (o["공급가(HS)"] ?? 0), 0),
           "공급가(S1)": 주문.reduce((acc, o) => acc + (o["공급가(S1)"] ?? 0), 0),
-          추가시공비: 추가시공비내역.reduce((acc, r) => acc + (r.시공비 ?? 0), 0),
-          추가시공비내역,
           주문,
         });
       }),
@@ -203,12 +230,7 @@ export async function computeSettlement(ids: number[], scope: DataScope): Promis
     }
     const 입금내역 = rows.filter((d) => d.입출금 === "입금").map(toDetail);
     const 출금내역 = rows.filter((d) => d.입출금 === "출금").map(toDetail);
-    const 한샘 = hansem.get(no) ?? { 공급가: 0, "공급가(부가세포함)": 0, "공급가(HS)": 0, "공급가(S1)": 0, 추가시공비: 0, 추가시공비내역: [], 주문: [] };
-    for (const r of 한샘.추가시공비내역) {
-      if (r.시공비 === null && r.시공비원문) {
-        warnings.push(`${no}: 추가시공비 "${r.시공비원문}"은(는) 숫자가 아니어서 합계에서 제외했습니다`);
-      }
-    }
+    const 한샘 = hansem.get(no) ?? { 공급가: 0, "공급가(부가세포함)": 0, "공급가(HS)": 0, "공급가(S1)": 0, 주문: [] };
     return {
       id: s.id,
       현장번호: no,
@@ -218,7 +240,7 @@ export async function computeSettlement(ids: number[], scope: DataScope): Promis
       정산월: s.정산월,
       계약금: s.계약가,
       총입금액: sum(입금내역),
-      총출금액: 한샘["공급가(부가세포함)"] + 한샘.추가시공비 + sum(출금내역),
+      총출금액: 한샘["공급가(부가세포함)"] + sum(출금내역),
       입금내역,
       출금내역,
       한샘,

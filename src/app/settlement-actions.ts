@@ -3,7 +3,13 @@
 import { refresh } from "next/cache";
 
 import { authorizeAction } from "@/lib/auth";
-import { computeSettlement, MAX_SETTLEMENT_SITES, type SettlementResult } from "@/lib/settlement";
+import {
+  computeSettlement,
+  fetchExtraCostDeduction,
+  MAX_SETTLEMENT_SITES,
+  type SettlementExtraCostDeduction,
+  type SettlementResult,
+} from "@/lib/settlement";
 import { xlsxToCells } from "@/lib/excel-cells";
 import { cellsToRows, CSV_MAX_BYTES, csvToRows, decodeCsv, isUploadTable, UPLOAD_TABLES, type UploadTable } from "@/lib/settlement-upload";
 import { summarizeSettlement, type WorkerRates } from "@/lib/settlement-calc";
@@ -207,7 +213,7 @@ function checkIds(ids: number[]): string | null {
 
 /**
  * 관리자 이상 전용: 선택한 현장의 정산결과를 정산정보 테이블에 저장한다. 금액은 서버에서 다시 계산한다.
- * 정산대상금액 = 이익금액 합계 - 공제금 - 전달 누적이월금. 음수면 그 금액이 이월금·누적이월금, 양수면 정산금(누적이월금 0).
+ * 정산대상금액 = 이익금액 합계 - 공제금 - 추가시공비(정산월 전달, 부가세제외) - 전달 누적이월금. 음수면 그 금액이 이월금·누적이월금, 양수면 정산금(누적이월금 0).
  * 정산시작월 기준 3개월째 되는 달은 전달 누적이월금을 0으로 리셋한다.
  * 같은 영업사원·정산월 기록이 있으면 새로 넣지 않고 고쳐 쓴다.
  */
@@ -225,11 +231,11 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
     if (typeof target === "string") return { ok: false, error: target };
     const { 영업사원, 저장월: 정산월, 영업사원ID } = target;
     const account = await findSettlementAccount(영업사원ID, 영업사원);
-    const carryIn = await fetchCarryIn(target, account);
+    const [carryIn, extraCost] = await Promise.all([fetchCarryIn(target, account), fetchTargetExtraCost(target)]);
     const rates = ratesOf(account);
-    const { profit, settlement, carryOver } = summarizeSettlement(lines, carryIn.금액, rates);
-    // 정산내역에서 다시 볼 수 있게 계산한 정산결과(현장별 내역·누적이월금·비율)를 함께 저장한다
-    const snapshot: SettlementWithCarryIn = { ...computed, carryIn, rates };
+    const { profit, settlement, carryOver } = summarizeSettlement(lines, carryIn.금액, rates, extraCost);
+    // 정산내역에서 다시 볼 수 있게 계산한 정산결과(현장별 내역·누적이월금·추가시공비·비율)를 함께 저장한다
+    const snapshot: SettlementWithCarryIn = { ...computed, carryIn, rates, extraCost };
     const record = {
       영업사원,
       영업사원ID,
@@ -277,8 +283,26 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
   }
 }
 
-/** 정산 계산 결과 + 전달 누적이월금·개인 비율 (영업사원·정산월이 하나씩일 때만, 아니면 null) */
-export type SettlementWithCarryIn = SettlementResult & { carryIn: CarryIn | null; rates: AppliedRates | null };
+/** 정산 계산 결과 + 전달 누적이월금·추가시공비·개인 비율 (영업사원·정산월이 하나씩일 때만, 아니면 null) */
+export type SettlementWithCarryIn = SettlementResult & {
+  carryIn: CarryIn | null;
+  rates: AppliedRates | null;
+  /** 예전에 저장·게시한 정산결과에는 없다 (그때는 현장별 한샘 금액에 포함) */
+  extraCost?: SettlementExtraCostDeduction | null;
+};
+
+export type { SettlementExtraCostDeduction };
+
+/** 정산월 전달(시공시작일 기준)의 그 영업사원 한샘추가시공비 */
+function fetchTargetExtraCost(target: SettlementTarget): Promise<SettlementExtraCostDeduction> {
+  return fetchExtraCostDeduction(target.영업사원, previousYearMonth(target.저장월));
+}
+
+function extraCostWarnings(extraCost: SettlementExtraCostDeduction): string[] {
+  return extraCost.내역
+    .filter((r) => r.시공비 === null && r.시공비원문)
+    .map((r) => `${r.현장코드 ?? ""}: 추가시공비 "${r.시공비원문}"은(는) 숫자가 아니어서 합계에서 제외했습니다`);
+}
 
 /** 정산 내역 + (영업사원·정산월이 하나씩이면) 전달 누적이월금·개인 비율 */
 async function computeWithCarryIn(
@@ -287,9 +311,13 @@ async function computeWithCarryIn(
 ): Promise<{ data: SettlementWithCarryIn; target: SettlementTarget | string }> {
   const result = await computeSettlement(ids, scope);
   const target = await singleTarget(result.lines);
-  if (typeof target === "string") return { data: { ...result, carryIn: null, rates: null }, target };
+  if (typeof target === "string") return { data: { ...result, carryIn: null, rates: null, extraCost: null }, target };
   const account = await findSettlementAccount(target.영업사원ID, target.영업사원);
-  return { data: { ...result, carryIn: await fetchCarryIn(target, account), rates: ratesOf(account) }, target };
+  const [carryIn, extraCost] = await Promise.all([fetchCarryIn(target, account), fetchTargetExtraCost(target)]);
+  return {
+    data: { ...result, warnings: [...result.warnings, ...extraCostWarnings(extraCost)], carryIn, rates: ratesOf(account), extraCost },
+    target,
+  };
 }
 
 /** 관리자 이상 전용: 선택한 미정산 현장의 정산 내역 계산 (읽기 전용) */

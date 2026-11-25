@@ -4,7 +4,7 @@ import { Suspense } from "react";
 
 import { requireUser } from "@/lib/auth";
 import { fetchPost, increaseViews } from "@/lib/board";
-import { sanitizeBoardHtml } from "@/lib/board-html";
+import { renderBoardHtml } from "@/lib/board-html";
 import { BOARD_CATEGORY_BADGE, formatBoardDate, formatFileSize, viewableType } from "@/lib/board-shared";
 import { canApprove } from "@/lib/data-scope";
 
@@ -86,7 +86,7 @@ async function PostView({ params }: { params: Params }) {
           // 서식 있는 글: 허용한 태그·스타일만 남긴 HTML을 그린다
           <div
             className="board-content min-h-40 px-4 py-5 sm:px-6"
-            dangerouslySetInnerHTML={{ __html: sanitizeBoardHtml(post.content) }}
+            dangerouslySetInnerHTML={{ __html: renderBoardHtml(post.content) }}
           />
         ) : (
           // 예전 텍스트 글은 텍스트 그대로 표시 (HTML로 해석하지 않음)

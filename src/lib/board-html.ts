@@ -56,6 +56,15 @@ export function sanitizeBoardHtml(html: string): string {
   return sanitizeHtml(html, OPTIONS);
 }
 
+/**
+ * 글 보기 화면용 HTML: 정리한 뒤, 문단 끝의 줄바꿈(<br>)이 화면에 보이게 한다.
+ * 브라우저는 블록 맨 끝의 <br>을 빈 줄로 그리지 않는데, 편집기(ProseMirror)는 그 자리에 <br>을 하나 더 넣어
+ * 빈 줄을 보여 준다. 보기 화면도 같게 맞춘다 (저장된 내용은 바꾸지 않는다).
+ */
+export function renderBoardHtml(html: string): string {
+  return sanitizeBoardHtml(html).replace(/<br\s*\/?>(\s*)<\/(p|li|h[1-4]|blockquote|td|th)>/gi, "<br /><br />$1</$2>");
+}
+
 /** 글에 들어 있는 텍스트만 (내용이 비었는지 확인용) */
 export function htmlToPlainText(html: string): string {
   return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).replace(/&nbsp;/g, " ").trim();

@@ -44,7 +44,7 @@ async function SettlementLoader() {
     // 정산금액은 서버에서 권한 테이블의 현재 비율로 계산한다 (게시 후 관리자가 비율을 바꿔도 반영).
     // RD에게는 계산 결과와 적용 비율 설명만 넘긴다 (비율 수정·공식은 관리자 화면에만).
     const rates = await currentRatesFor(publish.영업사원ID, publish.영업사원).catch(() => publish.결과?.rates ?? undefined);
-    const summary = summarizeSettlement(publish.결과.lines, publish.결과.carryIn?.금액 ?? 0, rates);
+    const summary = summarizeSettlement(publish.결과.lines, publish.결과.carryIn?.금액 ?? 0, rates, publish.결과.extraCost ?? null);
     return (
       <RdSettlementView
         영업사원={publish.영업사원}

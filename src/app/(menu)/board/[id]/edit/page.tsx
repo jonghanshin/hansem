@@ -48,5 +48,7 @@ async function EditPost({ params }: { params: Params }) {
       </div>
     );
   }
-  return <BoardForm post={post} canNotice={admin} />;
+  // cacheComponents에서는 다녀간 화면을 숨겨 두고 상태를 그대로 살린다(Activity).
+  // 글이 수정되면 key가 바뀌어 예전 입력값 대신 최신 내용으로 편집기를 새로 연다.
+  return <BoardForm key={`${post.id}-${post.updatedAt ?? post.createdAt}`} post={post} canNotice={admin} />;
 }

@@ -21,10 +21,11 @@ export function outflowRows(line: SettlementLine, group: OutflowGroup) {
   });
 }
 
-/** 총출금액의 구성: 한샘(부가세 포함 공급가+추가시공비)·홈씨씨·시공비(한샘외, 부가세 포함/미포함)·기타 */
+/** 총출금액의 구성: 한샘(부가세 포함 공급가)·홈씨씨·시공비(한샘외, 부가세 포함/미포함)·기타 */
 export function outflowParts(line: SettlementLine) {
   return {
-    한샘: line.한샘["공급가(부가세포함)"] + line.한샘.추가시공비,
+    // 예전에 저장한 정산결과는 현장별 추가시공비를 한샘 금액에 포함했다 (지금은 없음 → 0)
+    한샘: line.한샘["공급가(부가세포함)"] + (line.한샘.추가시공비 ?? 0),
     홈씨씨: rowsSum(outflowRows(line, "홈씨씨")),
     시공비포함: rowsSum(outflowRows(line, "시공비포함")),
     시공비미포함: rowsSum(outflowRows(line, "시공비미포함")),
@@ -80,7 +81,7 @@ export function workerShareBreakdown(amount: number, rates: WorkerRates = DEFAUL
 export type SettlementSummaryValues = {
   /** 이익금액 합계 */
   profit: number;
-  /** 정산대상금액 = 이익금액 합계 - 공제금 - 전달 누적이월금 */
+  /** 정산대상금액 = 이익금액 합계 - 공제금 - 추가시공비(부가세제외) - 전달 누적이월금 */
   target: number;
   /** 정산대상금액이 0 이상일 때의 정산금액(근로자 몫), 아니면 0 */
   settlement: number;
@@ -88,13 +89,19 @@ export type SettlementSummaryValues = {
   carryOver: number;
 };
 
+/** 정산대상금액에서 빼는 추가시공비: 이익금액과 같이 부가세 제외 금액으로 뺀다 */
+export function extraCostDeduction(extraCost: { 합계: number } | null | undefined) {
+  return extraCost ? withoutVat(extraCost.합계) : 0;
+}
+
 export function summarizeSettlement(
   lines: SettlementLine[],
   carryIn = 0,
   rates: WorkerRates = DEFAULT_WORKER_RATES,
+  extraCost: { 합계: number } | null = null,
 ): SettlementSummaryValues {
   const profit = lines.reduce((acc, l) => acc + (netProfit(l) ?? 0), 0);
-  const target = profit - DEDUCTION - carryIn;
+  const target = profit - DEDUCTION - extraCostDeduction(extraCost) - carryIn;
   return {
     profit,
     target,
