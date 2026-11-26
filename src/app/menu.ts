@@ -32,7 +32,7 @@ export const MENU = [
   {
     href: "/knowledge",
     label: "지식자산",
-    description: "공정표 조회 및 수정 (공정별·타공정거래처는 관리자 이상)",
+    description: "공정표·공정별거래처·타공정거래처 조회 (거래처 수정은 관리자 이상)",
   },
 ] as const;
 

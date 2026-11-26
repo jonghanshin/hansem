@@ -14,7 +14,16 @@ function cellText(v: string | number | null | undefined): string {
   return v == null ? "" : String(v);
 }
 
-export function KnowledgeTable({ tableKey, rows }: { tableKey: KnowledgeTableKey; rows: KnowledgeRow[] }) {
+export function KnowledgeTable({
+  tableKey,
+  rows,
+  readOnly = false,
+}: {
+  tableKey: KnowledgeTableKey;
+  rows: KnowledgeRow[];
+  /** true면 보기만 (추가·수정·삭제 없음). 서버에서도 다시 막는다 */
+  readOnly?: boolean;
+}) {
   const cfg = KNOWLEDGE_TABLES[tableKey];
   const [q, setQ] = useState("");
   const [proc, setProc] = useState("");
@@ -68,16 +77,20 @@ export function KnowledgeTable({ tableKey, rows }: { tableKey: KnowledgeTableKey
           {/* 현재 검색어·공정 조건에 맞는 행을 화면과 같은 컬럼 순서로 내보낸다 */}
           <ExportButton count={filtered.length} fileBase={cfg.label} build={() => knowledgeExportTable(tableKey, filtered)} />
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setNotice(null);
-            setEditing(null);
-          }}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
-        >
-          + 추가
-        </button>
+        {readOnly ? (
+          <span className="rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-500">보기 전용 (수정은 관리자 이상)</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setNotice(null);
+              setEditing(null);
+            }}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            + 추가
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto lg:min-h-0">
@@ -108,7 +121,7 @@ export function KnowledgeTable({ tableKey, rows }: { tableKey: KnowledgeTableKey
                 }}
                 tabIndex={0}
                 className="cursor-pointer hover:bg-blue-50 focus-visible:bg-blue-50 focus-visible:outline-none"
-                aria-label={`${cellText(r["공정"])} ${cellText(r["업체·소속"] ?? r["주요 작업"])} 수정`}
+                aria-label={`${cellText(r["공정"])} ${cellText(r["업체·소속"] ?? r["주요 작업"])} ${readOnly ? "보기" : "수정"}`}
               >
                 {cfg.columns.map((c) => {
                   const text = cellText(r[c.key]);
@@ -136,6 +149,7 @@ export function KnowledgeTable({ tableKey, rows }: { tableKey: KnowledgeTableKey
         <RowDialog
           tableKey={tableKey}
           row={editing}
+          readOnly={readOnly}
           defaultProcess={proc}
           onClose={() => setEditing(undefined)}
           onDone={(message) => {
@@ -151,12 +165,14 @@ export function KnowledgeTable({ tableKey, rows }: { tableKey: KnowledgeTableKey
 function RowDialog({
   tableKey,
   row,
+  readOnly,
   defaultProcess,
   onClose,
   onDone,
 }: {
   tableKey: KnowledgeTableKey;
   row: KnowledgeRow | null;
+  readOnly: boolean;
   defaultProcess: string;
   onClose: () => void;
   onDone: (message: string) => void;
@@ -173,6 +189,7 @@ function RowDialog({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     setError(null);
     startTransition(async () => {
       const res = await saveKnowledgeRowAction(tableKey, row?.id ?? null, values);
@@ -213,7 +230,7 @@ function RowDialog({
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
           <h2 id={`${idp}-title`} className="text-lg font-semibold text-zinc-900">
-            {cfg.label} {row ? "수정" : "추가"}
+            {cfg.label} {readOnly ? "보기" : row ? "수정" : "추가"}
           </h2>
           <button
             type="button"
@@ -237,7 +254,8 @@ function RowDialog({
                   value={values[c.key]}
                   onChange={(e) => setValues((v) => ({ ...v, [c.key]: e.target.value }))}
                   rows={2}
-                  className={INPUT}
+                  readOnly={readOnly}
+                  className={`${INPUT} read-only:bg-zinc-50`}
                   autoFocus={i === 0}
                 />
               ) : (
@@ -245,7 +263,8 @@ function RowDialog({
                   value={values[c.key]}
                   onChange={(e) => setValues((v) => ({ ...v, [c.key]: e.target.value }))}
                   inputMode={c.type === "int" ? "numeric" : undefined}
-                  className={INPUT}
+                  readOnly={readOnly}
+                  className={`${INPUT} read-only:bg-zinc-50`}
                   autoFocus={i === 0}
                 />
               )}
@@ -260,7 +279,7 @@ function RowDialog({
             </p>
           )}
           <div className="flex items-center gap-2">
-            {row && (
+            {row && !readOnly && (
               <button
                 type="button"
                 onClick={remove}
@@ -276,15 +295,17 @@ function RowDialog({
               disabled={pending}
               className="ml-auto rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
             >
-              취소
+              {readOnly ? "닫기" : "취소"}
             </button>
-            <button
-              type="submit"
-              disabled={pending}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
-            >
-              {pending ? "저장 중…" : "저장"}
-            </button>
+            {!readOnly && (
+              <button
+                type="submit"
+                disabled={pending}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              >
+                {pending ? "저장 중…" : "저장"}
+              </button>
+            )}
           </div>
         </div>
       </form>

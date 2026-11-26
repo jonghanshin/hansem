@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { requireUser } from "@/lib/auth";
 import { fetchKnowledgeRows } from "@/lib/knowledge";
 import { canApprove } from "@/lib/data-scope";
-import { isKnowledgeKey, KNOWLEDGE_TABLES, visibleKnowledgeKeys, type KnowledgeTableKey } from "@/lib/knowledge-shared";
+import { canEditKnowledge, isKnowledgeKey, KNOWLEDGE_KEYS, KNOWLEDGE_TABLES, type KnowledgeTableKey } from "@/lib/knowledge-shared";
 
 import { KnowledgeTable } from "./knowledge-table";
 
@@ -26,8 +26,9 @@ export default function KnowledgePage({ searchParams }: { searchParams: SearchPa
 async function KnowledgeContent({ searchParams }: { searchParams: SearchParams }) {
   await connection();
   const session = await requireUser();
-  // 공정별거래처·타공정거래처는 관리자 이상만 (주소를 직접 입력해도 첫 번째로 볼 수 있는 탭으로)
-  const keys = visibleKnowledgeKeys(canApprove(session));
+  // 모든 지식자산은 누구나 본다. 공정별거래처·타공정거래처의 수정은 관리자 이상만
+  const keys = KNOWLEDGE_KEYS;
+  const isManager = canApprove(session);
   const sp = await searchParams;
   const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
   const tab: KnowledgeTableKey = isKnowledgeKey(rawTab) && keys.includes(rawTab) ? rawTab : keys[0];
@@ -61,7 +62,7 @@ async function KnowledgeContent({ searchParams }: { searchParams: SearchParams }
       </header>
 
       {result.ok ? (
-        <KnowledgeTable key={tab} tableKey={tab} rows={result.rows} />
+        <KnowledgeTable key={tab} tableKey={tab} rows={result.rows} readOnly={!canEditKnowledge(tab, isManager)} />
       ) : (
         <div className="m-6 max-w-xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           <p className="font-semibold">데이터를 불러오지 못했습니다</p>
