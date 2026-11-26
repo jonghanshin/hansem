@@ -10,7 +10,7 @@ type MenuItem = { href: string; label: string };
 
 export function MenuNav({ adminSlot, userSlot }: { adminSlot?: React.ReactNode; userSlot?: React.ReactNode }) {
   return (
-    <nav className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1 bg-zinc-900 px-3 sm:px-5" aria-label="주 메뉴">
+    <nav className="sticky top-0 z-30 flex h-11 print:hidden shrink-0 items-center gap-1 bg-zinc-900 px-3 sm:px-5" aria-label="주 메뉴">
       <BackButton />
       <Link href="/" className="mr-3 rounded px-2 py-1 text-sm font-semibold text-white hover:bg-white/10">
         홈

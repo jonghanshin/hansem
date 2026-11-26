@@ -15,6 +15,7 @@ import {
   EVENT_TITLE_MAX,
   formatEventPeriod,
   isEventColor,
+  MAX_ATTENDEES,
   MAX_SELECTED_MEMBERS,
   memberColors,
   monthWeeks,
@@ -89,7 +90,6 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
   const names = useMemo(() => new Map([...members.map((m) => [m.id, m.name] as const), [me.id, me.name]]), [members, me]);
   const weeks = useMemo(() => monthWeeks(ym), [ym]);
   const sorted = useMemo(() => [...events].sort(compareEvents), [events]);
-  const othersShown = selectedIds.length > 0;
 
   const go = (nextYm: string, ids: number[], withMe = showMe) => {
     const params = new URLSearchParams();
@@ -107,25 +107,33 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
     e.shared ? TEAM_CATEGORIES[teamCategoryOf(e)] : isEventColor(e.color) ? EVENT_COLORS[e.color] : colorOf(e.ownerId);
 
   return (
-    <div className="flex flex-1 flex-col lg:min-h-0">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6">
+    <div className="flex flex-1 flex-col lg:min-h-0 print:block">
+      {/* 인쇄: A4 가로 한 장에 한 달. 배경색(일정 색)도 그대로 찍히게 한다 */}
+      <style>{`@media print {
+        @page { size: A4 landscape; margin: 8mm; }
+        html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }`}</style>
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6 print:border-b-0 print:px-0 print:py-1">
         <h1 className="text-lg font-semibold text-zinc-900">팀 캘린더</h1>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => go(shiftMonth(ym, -1), selectedIds)} className={BUTTON} aria-label="이전 달">
+          <button type="button" onClick={() => go(shiftMonth(ym, -1), selectedIds)} className={`${BUTTON} print:hidden`} aria-label="이전 달">
             ‹
           </button>
           <span className="min-w-28 text-center text-base font-semibold text-zinc-900 tabular-nums">
             {year}년 {month}월
           </span>
-          <button type="button" onClick={() => go(shiftMonth(ym, 1), selectedIds)} className={BUTTON} aria-label="다음 달">
+          <button type="button" onClick={() => go(shiftMonth(ym, 1), selectedIds)} className={`${BUTTON} print:hidden`} aria-label="다음 달">
             ›
           </button>
-          <button type="button" onClick={() => go(today.slice(0, 7), selectedIds)} className={`${BUTTON} ml-1`}>
+          <button type="button" onClick={() => go(today.slice(0, 7), selectedIds)} className={`${BUTTON} ml-1 print:hidden`}>
             오늘
           </button>
         </div>
-        {navigating && <span className="text-xs text-zinc-400">불러오는 중…</span>}
-        <div className="ml-auto flex items-center gap-2">
+        {navigating && <span className="text-xs text-zinc-400 print:hidden">불러오는 중…</span>}
+        <div className="ml-auto flex items-center gap-2 print:hidden">
+          <button type="button" onClick={() => window.print()} className={BUTTON} title="이 달 캘린더 인쇄 (A4 가로)">
+            인쇄
+          </button>
           <MemberPicker
             me={me}
             members={members}
@@ -145,7 +153,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
       </header>
 
       {/* 보이는 사람 범례 */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 text-xs sm:px-6">
+      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 text-xs sm:px-6 print:border-b-0 print:px-0 print:py-1">
         <span className="text-zinc-500">표시 중:</span>
         {TEAM_CATEGORY_KEYS.map((c) => (
           <LegendChip key={c} color={TEAM_CATEGORIES[c]} label={`Team·${c}`} />
@@ -161,9 +169,9 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
         ))}
       </div>
 
-      <div className={`flex-1 lg:min-h-0 lg:overflow-auto ${navigating ? "opacity-60" : ""}`}>
-        <div className="p-2 sm:p-4">
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+      <div className={`flex-1 lg:min-h-0 lg:overflow-auto print:overflow-visible ${navigating ? "opacity-60" : ""}`}>
+        <div className="p-2 sm:p-4 print:p-0">
+          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm print:rounded-none print:border-zinc-400 print:shadow-none">
             <div className="grid grid-cols-7 border-b border-zinc-200 bg-zinc-50 text-center text-xs font-medium">
               {WEEKDAYS.map((d, i) => (
                 <div key={d} className={`py-2 ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-zinc-500"}`}>
@@ -172,7 +180,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
               ))}
             </div>
             {weeks.map((week) => (
-              <div key={week[0]} className="grid grid-cols-7 border-b border-zinc-100 last:border-b-0">
+              <div key={week[0]} className="grid grid-cols-7 border-b border-zinc-100 last:border-b-0 print:break-inside-avoid print:border-zinc-300">
                 {week.map((date, i) => {
                   const dayEvents = sorted.filter((e) => eventOnDate(e, date));
                   const inMonth = date.startsWith(ym);
@@ -182,7 +190,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
                       key={date}
                       onClick={() => tapDay(date, () => setDialog({ kind: "new", date }))}
                       title="한 번 누르면 이 날 일정 목록, 두 번 누르면 새 일정 · 일정 위에서 두 번 누르면 그 일정 수정"
-                      className={`group min-h-24 cursor-pointer touch-manipulation select-none border-r border-zinc-100 p-1 last:border-r-0 hover:bg-blue-50/40 sm:min-h-28 ${
+                      className={`group min-h-24 cursor-pointer touch-manipulation select-none border-r border-zinc-100 p-1 last:border-r-0 hover:bg-blue-50/40 sm:min-h-28 print:min-h-20 print:border-zinc-300 ${
                         inMonth ? "" : "bg-zinc-50/70"
                       }`}
                     >
@@ -205,12 +213,13 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
                         <span className="hidden text-xs text-zinc-400 group-hover:inline">+</span>
                       </div>
                       <ul className="space-y-0.5">
-                        {dayEvents.slice(0, MAX_PER_CELL).map((e) => (
-                          <li key={e.id}>
+                        {/* 화면에는 MAX_PER_CELL개까지만, 인쇄할 때는 전부 */}
+                        {dayEvents.map((e, idx) => (
+                          <li key={e.id} className={idx >= MAX_PER_CELL ? "hidden print:block" : undefined}>
                             <EventChip
                               event={e}
                               color={eventColor(e)}
-                              ownerName={!e.shared && othersShown && e.ownerId !== me.id ? nameOf(e.ownerId) : null}
+                              ownerName={!e.shared && e.ownerId !== me.id ? nameOf(e.ownerId) : null}
                               past={e.endDate < today}
                               onClick={() => tapDay(date, () => setDialog({ kind: "event", event: e }))}
                             />
@@ -224,7 +233,7 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
                             ev.stopPropagation();
                             setDialog({ kind: "day", date });
                           }}
-                          className="mt-0.5 w-full rounded px-1 text-left text-[11px] font-medium text-zinc-500 hover:bg-zinc-200"
+                          className="mt-0.5 w-full rounded px-1 text-left text-[11px] font-medium text-zinc-500 hover:bg-zinc-200 print:hidden"
                         >
                           +{hidden}개 더보기
                         </button>
@@ -252,12 +261,21 @@ export function CalendarView({ ym, today, me, members, selectedIds, showMe, even
         />
       )}
       {dialog?.kind === "new" && (
-        <EventDialog key={`new-${dialog.date}`} me={me} date={dialog.date} onClose={() => setDialog(null)} />
+        <EventDialog
+          key={`new-${dialog.date}`}
+          me={me}
+          members={members}
+          nameOf={nameOf}
+          date={dialog.date}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog?.kind === "event" && (
         <EventDialog
           key={`event-${dialog.event.id}`}
           me={me}
+          members={members}
+          nameOf={nameOf}
           event={dialog.event}
           ownerName={nameOf(dialog.event.ownerId)}
           ownerColor={colorOf(dialog.event.ownerId)}
@@ -293,8 +311,8 @@ function EventChip({
         onClick();
       }}
       title={`${event.shared ? `[Team·${teamCategoryOf(event)}] ` : ""}${ownerName ? `[${ownerName}] ` : ""}${event.title} (${formatEventPeriod(event)})`}
-      className={`block w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[11px] leading-tight hover:brightness-95 sm:text-xs ${color.chip} ${
-        past ? "opacity-40 hover:opacity-70" : ""
+      className={`block w-full truncate rounded border-l-[3px] px-1 py-0.5 text-left text-[11px] leading-tight hover:brightness-95 sm:text-xs print:whitespace-normal print:break-all print:text-[10px] ${color.chip} ${
+        past ? "opacity-40 hover:opacity-70 print:opacity-60" : ""
       }`}
     >
       {event.shared && <SharedBadge className="mr-1" />}
@@ -322,7 +340,7 @@ function LegendChip({ color, label, onRemove }: { color: MemberColor; label: str
         <button
           type="button"
           onClick={onRemove}
-          className="-mr-1 rounded-full px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+          className="-mr-1 rounded-full print:hidden px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
           aria-label={`${label} 일정 숨기기`}
         >
           ×
@@ -466,7 +484,7 @@ function MemberPicker({
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4 print:hidden"
       onClick={(e) => e.target === e.currentTarget && onClose()}
       onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
@@ -527,6 +545,11 @@ function DayDialog({
               </span>
               {/* 제목은 자르지 않고 전부 보여준다 */}
               <span className="mt-0.5 block break-all text-sm font-medium">{e.title}</span>
+              {e.attendeeIds.length > 0 && (
+                <span className="mt-0.5 block break-all text-xs opacity-80">
+                  참석: {e.attendeeIds.map((id) => (id === meId ? "나" : nameOf(id))).join(", ")}
+                </span>
+              )}
               {e.memo && <span className="mt-0.5 line-clamp-2 block break-all text-xs opacity-70">{e.memo}</span>}
             </button>
           </li>
@@ -542,6 +565,8 @@ function DayDialog({
 /** 새 일정 등록, 본인 일정 수정, 다른 사람 일정 보기 */
 function EventDialog({
   me,
+  members,
+  nameOf,
   date,
   event,
   ownerName,
@@ -549,6 +574,9 @@ function EventDialog({
   onClose,
 }: {
   me: CalendarMember;
+  /** 참석자로 고를 수 있는 사용자 */
+  members: CalendarMember[];
+  nameOf: (id: number) => string;
   date?: string;
   event?: CalendarEvent;
   ownerName?: string;
@@ -563,6 +591,7 @@ function EventDialog({
   const [teamCategory, setTeamCategory] = useState<TeamCategory>(
     event?.shared ? teamCategoryOf(event) : TEAM_CATEGORY_DEFAULT,
   );
+  const [attendees, setAttendees] = useState<number[]>(event?.attendeeIds ?? []);
 
   const isMine = !event || event.ownerId === me.id;
   const color = ownerColor ?? MY_COLOR;
@@ -578,6 +607,23 @@ function EventDialog({
         </div>
         <h3 className="mt-3 break-all text-lg font-semibold text-zinc-900">{event.title}</h3>
         <p className="mt-1 text-sm text-zinc-600">{formatEventPeriod(event)}</p>
+        {event.attendeeIds.length > 0 && (
+          <div className="mt-3">
+            <span className="mb-1 block text-xs font-medium text-zinc-700">참석자 {event.attendeeIds.length}명</span>
+            <div className="flex flex-wrap gap-1">
+              {event.attendeeIds.map((id) => (
+                <span
+                  key={id}
+                  className={`rounded-full px-2 py-0.5 text-xs ${
+                    id === me.id ? "bg-blue-100 font-semibold text-blue-900" : "bg-zinc-100 text-zinc-700"
+                  }`}
+                >
+                  {id === me.id ? `${me.name} (나)` : nameOf(id)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {event.memo && <p className="mt-4 whitespace-pre-wrap break-all rounded-md bg-zinc-50 p-3 text-sm text-zinc-800">{event.memo}</p>}
         {event.consultId && (
           <Link
@@ -622,7 +668,7 @@ function EventDialog({
           <legend className="mb-1 block text-xs font-medium text-zinc-700">구분</legend>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { value: EVENT_KIND_PERSONAL, label: "개인", hint: "나와 나를 선택한 사람에게" },
+              { value: EVENT_KIND_PERSONAL, label: "개인", hint: "나·참석자·나를 선택한 사람에게" },
               { value: EVENT_KIND_SHARED, label: "Team", hint: "모든 사람에게 보임" },
             ].map((k) => (
               <label
@@ -744,6 +790,7 @@ function EventDialog({
             </label>
           </div>
         )}
+        <AttendeePicker me={me} members={members} nameOf={nameOf} value={attendees} onChange={setAttendees} />
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-zinc-700">메모 (선택)</span>
           <textarea name="memo" rows={3} maxLength={EVENT_MEMO_MAX} defaultValue={event?.memo} className={INPUT} />
@@ -779,6 +826,95 @@ function EventDialog({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** 일정 참석자 선택: 전체 사용자 중에서 이름으로 찾아 체크한다 (등록자 본인 제외) */
+function AttendeePicker({
+  me,
+  members,
+  nameOf,
+  value,
+  onChange,
+}: {
+  me: CalendarMember;
+  members: CalendarMember[];
+  nameOf: (id: number) => string;
+  value: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const term = q.trim();
+  const candidates = members.filter((m) => m.id !== me.id && (!term || m.name.includes(term)));
+  const toggle = (id: number) =>
+    onChange(value.includes(id) ? value.filter((x) => x !== id) : value.length >= MAX_ATTENDEES ? value : [...value, id]);
+
+  return (
+    <div>
+      <input type="hidden" name="attendees" value={value.join(",")} />
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-zinc-700">
+          참석자 (선택){value.length > 0 && <span className="ml-1 text-blue-600">{value.length}명</span>}
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="text-xs font-medium text-blue-600 hover:underline"
+        >
+          {open ? "접기" : "+ 참석자 선택"}
+        </button>
+      </div>
+      {value.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1">
+          {value.map((id) => (
+            <span key={id} className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 py-0.5 pl-2 pr-1 text-xs text-blue-900">
+              {nameOf(id)}
+              <button
+                type="button"
+                onClick={() => toggle(id)}
+                className="rounded-full px-1 text-blue-400 hover:bg-blue-100 hover:text-blue-800"
+                aria-label={`${nameOf(id)} 참석자에서 빼기`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {open && (
+        <div className="rounded-md border border-zinc-200">
+          <div className="border-b border-zinc-100 p-1.5">
+            <input
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+              placeholder="이름 검색"
+              className={INPUT}
+            />
+          </div>
+          <ul className="max-h-44 overflow-auto py-1">
+            {candidates.map((m) => (
+              <li key={m.id}>
+                <label className="flex cursor-pointer items-center gap-2 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-50">
+                  <input
+                    type="checkbox"
+                    checked={value.includes(m.id)}
+                    onChange={() => toggle(m.id)}
+                    className="size-4 accent-blue-600"
+                  />
+                  {m.name}
+                </label>
+              </li>
+            ))}
+            {candidates.length === 0 && <li className="px-3 py-2 text-center text-sm text-zinc-500">사용자가 없습니다</li>}
+          </ul>
+        </div>
+      )}
+      <p className="mt-1 text-[11px] text-zinc-500">참석자의 캘린더에도 이 일정이 보입니다. (수정·삭제는 등록자만)</p>
+    </div>
   );
 }
 

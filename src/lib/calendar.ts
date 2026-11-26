@@ -18,6 +18,7 @@ type EventRecord = {
   시작시간: string | null;
   종료시간: string | null;
   상담id: number | null;
+  참석자: number[] | null;
 };
 
 export type EventInput = {
@@ -29,13 +30,15 @@ export type EventInput = {
   종료일: string;
   시작시간: string | null;
   종료시간: string | null;
+  /** 참석자 권한.id 목록 (등록자 제외) */
+  참석자: number[];
 };
 
-const COLUMNS = "id, 사용자, 제목, 메모, 구분, 색상, 시작일, 종료일, 시작시간, 종료시간, 상담id";
+const COLUMNS = "id, 사용자, 제목, 메모, 구분, 색상, 시작일, 종료일, 시작시간, 종료시간, 상담id, 참석자";
 
 function tableError(label: string, message: string): Error {
   if (/schema cache|does not exist/i.test(message)) {
-    return new Error(`${label} 실패: 일정 테이블(또는 컬럼)이 없습니다. doc/일정.sql(상담 연동 컬럼은 doc/상담노트_2단계.sql)을 Supabase SQL Editor에서 실행해 주세요.`);
+    return new Error(`${label} 실패: 일정 테이블(또는 컬럼)이 없습니다. doc/일정.sql(상담 연동 컬럼은 doc/상담노트_2단계.sql, 참석자 컬럼은 doc/일정_참석자.sql)을 Supabase SQL Editor에서 실행해 주세요.`);
   }
   return new Error(`${label} 실패: ${message}`);
 }
@@ -54,6 +57,7 @@ function toEvent(r: EventRecord): CalendarEvent {
     shared: r.구분 === EVENT_KIND_SHARED,
     color: r.색상,
     consultId: r.상담id ?? null,
+    attendeeIds: (r.참석자 ?? []).map(Number),
   };
 }
 
@@ -65,7 +69,7 @@ export async function fetchCalendarMembers(excludedIds: readonly number[] = []):
     .sort((a, b) => a.name.localeCompare(b.name, "ko") || a.id - b.id);
 }
 
-/** [from, to] 기간과 겹치는 일정: 지정한 사람들의 일정 + 모든 공용 일정. excludedIds(열외 계정)의 일정은 뺀다 */
+/** [from, to] 기간과 겹치는 일정: 지정한 사람들의 일정 + 그 사람들이 참석자인 일정 + 모든 공용 일정. excludedIds(열외 계정)의 일정은 뺀다 */
 export async function fetchEvents(
   ownerIds: number[],
   from: string,
@@ -73,7 +77,7 @@ export async function fetchEvents(
   excludedIds: readonly number[] = [],
 ): Promise<CalendarEvent[]> {
   const ids = ownerIds.filter((id) => Number.isSafeInteger(id));
-  const owners = ids.length ? `사용자.in.(${ids.join(",")}),` : "";
+  const owners = ids.length ? `사용자.in.(${ids.join(",")}),참석자.ov.{${ids.join(",")}},` : "";
   let query = getSupabaseAdmin()
     .from(CALENDAR_TABLE)
     .select(COLUMNS)

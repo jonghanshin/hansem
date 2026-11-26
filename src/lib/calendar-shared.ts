@@ -18,6 +18,8 @@ export type CalendarEvent = {
   color: string | null;
   /** 고객상담에서 자동 등록된 일정이면 그 상담 id (캘린더에서는 고칠 수 없고 상담노트에서 바꾼다) */
   consultId: number | null;
+  /** 참석자 (권한.id, 등록자 제외). 참석자에게도 이 일정이 보인다 */
+  attendeeIds: number[];
 };
 
 export const EVENT_KIND_PERSONAL = "개인";
@@ -27,6 +29,8 @@ export const EVENT_TITLE_MAX = 100;
 export const EVENT_MEMO_MAX = 2000;
 /** 한 번에 같이 볼 수 있는 다른 팀원 수 */
 export const MAX_SELECTED_MEMBERS = 20;
+/** 한 일정에 지정할 수 있는 참석자 수 */
+export const MAX_ATTENDEES = 50;
 
 export const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 

@@ -3,6 +3,7 @@
 import { refresh } from "next/cache";
 
 import { authorizeAction } from "@/lib/auth";
+import { fetchAuthDirectory } from "@/lib/auth-directory";
 import { deleteEvent, fetchEvent, insertEvent, updateEvent, type EventInput } from "@/lib/calendar";
 import {
   EVENT_KIND_PERSONAL,
@@ -13,17 +14,32 @@ import {
   isTeamCategory,
   isValidDate,
   isValidTime,
+  MAX_ATTENDEES,
 } from "@/lib/calendar-shared";
 import type { ActionResult } from "@/lib/sites";
 
 // 팀 캘린더 일정 등록·수정·삭제.
 // 일정은 항상 로그인한 본인의 것으로 등록되고, 수정·삭제도 본인 일정만 할 수 있다 (공용 일정도 등록한 사람만).
+// 참석자로 지정된 사람에게도 일정이 보이지만, 참석자는 보기만 할 수 있다.
 
 function fail(e: unknown): { ok: false; error: string } {
   return { ok: false, error: e instanceof Error ? e.message : String(e) };
 }
 
-function parseForm(form: FormData): EventInput | string {
+/** 폼의 참석자(쉼표로 구분한 권한.id)를 확인한다. 등록자 본인과 없는 사용자는 뺀다 */
+async function parseAttendees(form: FormData, ownerId: number): Promise<number[] | string> {
+  const raw = String(form.get("attendees") ?? "")
+    .split(",")
+    .map((v) => Number(v.trim()))
+    .filter((id) => Number.isSafeInteger(id) && id > 0 && id !== ownerId);
+  const ids = [...new Set(raw)];
+  if (ids.length > MAX_ATTENDEES) return `참석자는 ${MAX_ATTENDEES}명까지 지정할 수 있습니다`;
+  if (!ids.length) return [];
+  const known = new Set((await fetchAuthDirectory()).map((r) => r.id));
+  return ids.filter((id) => known.has(id));
+}
+
+function parseForm(form: FormData): Omit<EventInput, "참석자"> | string {
   const title = String(form.get("title") ?? "").trim();
   const memo = String(form.get("memo") ?? "").replace(/\r\n/g, "\n").trimEnd();
   const startDate = String(form.get("startDate") ?? "");
@@ -66,7 +82,9 @@ export async function createEventAction(form: FormData): Promise<ActionResult<{ 
   const parsed = parseForm(form);
   if (typeof parsed === "string") return { ok: false, error: parsed };
   try {
-    const id = await insertEvent(auth.uid, parsed);
+    const attendees = await parseAttendees(form, auth.uid);
+    if (typeof attendees === "string") return { ok: false, error: attendees };
+    const id = await insertEvent(auth.uid, { ...parsed, 참석자: attendees });
     refresh();
     return { ok: true, data: { id } };
   } catch (e) {
@@ -91,7 +109,9 @@ export async function updateEventAction(id: number, form: FormData): Promise<Act
   try {
     const event = await loadOwnEvent(id, auth.uid);
     if (typeof event === "string") return { ok: false, error: event };
-    await updateEvent(id, parsed);
+    const attendees = await parseAttendees(form, auth.uid);
+    if (typeof attendees === "string") return { ok: false, error: attendees };
+    await updateEvent(id, { ...parsed, 참석자: attendees });
     refresh();
     return { ok: true, data: { id } };
   } catch (e) {

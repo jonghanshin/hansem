@@ -14,7 +14,7 @@ type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 export default function CalendarPage({ searchParams }: { searchParams: SearchParams }) {
   return (
-    <main className="flex flex-1 flex-col bg-zinc-50 lg:min-h-0">
+    <main className="flex flex-1 flex-col bg-zinc-50 lg:min-h-0 print:block print:bg-white">
       <Suspense fallback={<p className="p-6 text-sm text-zinc-500">캘린더를 불러오는 중…</p>}>
         <CalendarContent searchParams={searchParams} />
       </Suspense>
