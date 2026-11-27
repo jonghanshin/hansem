@@ -87,7 +87,21 @@ export type SettlementSummaryValues = {
   settlement: number;
   /** 정산대상금액이 음수일 때의 이월금액(양수, 새 누적이월금), 아니면 0 */
   carryOver: number;
+  /** 세후 정산금액 (정산금액 - 세금). 세율이 정해지기 전(SETTLEMENT_TAX_RATE = null)에는 0. 정산정보.정산금에 저장한다 */
+  afterTax: number;
 };
+
+/**
+ * 정산금액에 매기는 세율 (%). 아직 정해지지 않아 null이고, 그동안 세후 정산금액은 0으로 표시·저장한다.
+ * 세율이 정해지면 이 값만 바꾸면 화면·저장·급여명세서 성과급이 모두 그 세율로 계산된다 (예: 3.3).
+ */
+export const SETTLEMENT_TAX_RATE: number | null = null;
+
+/** 세후 정산금액 = 정산금액 - 원 단위 반올림한 세금 (세율이 없으면 0) */
+export function afterTaxAmount(settlement: number, taxRate: number | null = SETTLEMENT_TAX_RATE): number {
+  if (taxRate === null || settlement <= 0) return 0;
+  return settlement - Math.round((settlement * taxRate) / 100);
+}
 
 /** 정산대상금액에서 빼는 추가시공비: 이익금액과 같이 부가세 제외 금액으로 뺀다 */
 export function extraCostDeduction(extraCost: { 합계: number } | null | undefined) {
@@ -102,10 +116,12 @@ export function summarizeSettlement(
 ): SettlementSummaryValues {
   const profit = lines.reduce((acc, l) => acc + (netProfit(l) ?? 0), 0);
   const target = profit - DEDUCTION - extraCostDeduction(extraCost) - carryIn;
+  const settlement = target >= 0 ? workerShare(target, rates) : 0;
   return {
     profit,
     target,
-    settlement: target >= 0 ? workerShare(target, rates) : 0,
+    settlement,
     carryOver: target < 0 ? -target : 0,
+    afterTax: afterTaxAmount(settlement),
   };
 }

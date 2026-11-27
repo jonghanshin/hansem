@@ -8,15 +8,18 @@ import {
   getRdPublishAction,
   listRdPublishAction,
   publishRdAction,
+  getSettlementConfirmAction,
   getSettlementHistoryDetailAction,
   listSettlementHistoryAction,
   saveSettlementAction,
   saveWorkerRatesAction,
+  setSettlementConfirmAction,
   updateRdPublishPeriodAction,
   type RdPublish,
   type AppliedRates,
   type CarryIn,
   type SavedSettlement,
+  type SettlementConfirm,
   type SettlementExtraCostDeduction,
   type SettlementHistoryRow,
   type SettlementWithCarryIn,
@@ -34,6 +37,7 @@ import {
   outflowRows,
   rowsSum,
   DEFAULT_WORKER_RATES,
+  SETTLEMENT_TAX_RATE,
   summarizeSettlement,
   workerShare,
   workerShareBreakdown,
@@ -200,7 +204,8 @@ function SettlementSummary({
   const [rateError, setRateError] = useState<string | null>(null);
   const [rateMessage, setRateMessage] = useState<string | null>(null);
   const [ratePending, startRateTransition] = useTransition();
-  const { profit, target, settlement, carryOver } = fixedSummary ?? summarizeSettlement(lines, carryIn?.금액 ?? 0, appliedRates, extraCost);
+  const { profit, target, settlement, carryOver, afterTax } =
+    fixedSummary ?? summarizeSettlement(lines, carryIn?.금액 ?? 0, appliedRates, extraCost);
   const [showExtra, setShowExtra] = useState(false);
   const pct = (n: number) => `${n}%`;
   const [saved, setSaved] = useState<SavedSettlement | null>(null);
@@ -351,7 +356,7 @@ function SettlementSummary({
           {saved && (
             <p role="status" className="text-emerald-700">
               {saved.영업사원} {saved.정산월} 정산정보를 {saved.updated ? "갱신" : "저장"}했습니다 ·{" "}
-              {saved.정산금 > 0 ? `정산금 ${formatMoney(saved.정산금)}원` : "정산금 없음"} · 누적이월금 {formatMoney(saved.누적이월금)}원
+              {saved.세전정산금 > 0 ? `정산금 세전 ${formatMoney(saved.세전정산금)}원 → 세후 ${formatMoney(saved.정산금)}원 저장` : "정산금 없음"} · 누적이월금 {formatMoney(saved.누적이월금)}원
             </p>
           )}
         </div>
@@ -370,11 +375,27 @@ function SettlementSummary({
             </div>
           ))}
           <div className="flex justify-between gap-6 border-t border-zinc-200 pt-1 font-semibold">
-            <dt className="text-zinc-900">{target < 0 ? "이월금액" : "정산금액"}</dt>
+            <dt className="text-zinc-900">
+              {target < 0 ? (
+                "이월금액"
+              ) : (
+                <>
+                  정산금액 <span className="text-xs font-normal text-zinc-500">(세전)</span>
+                </>
+              )}
+            </dt>
             <dd className={`tabular-nums ${target < 0 ? "text-amber-700" : "text-blue-700"}`}>
               {formatMoney(target < 0 ? carryOver : settlement)}
             </dd>
           </div>
+          {target >= 0 && (
+            <div className="flex justify-between gap-6 font-semibold">
+              <dt className="text-zinc-900">
+                정산금액 <span className="text-xs font-normal text-zinc-500">(세후{SETTLEMENT_TAX_RATE === null ? ", 세율 미정" : ` · 세율 ${SETTLEMENT_TAX_RATE}%`})</span>
+              </dt>
+              <dd className="tabular-nums text-blue-700">{formatMoney(afterTax ?? 0)}</dd>
+            </div>
+          )}
         </dl>
       </div>
       {showExtra && extraCost && (
@@ -496,6 +517,94 @@ function SettlementSummary({
           <OpinionThread 영업사원={salesName} 정산월={monthName} role="admin" />
         </div>
       )}
+      {/* 정산 확정: 확정한 정산금은 다음 달 급여명세서의 성과급이 된다 */}
+      {!readOnly && salesName && monthName && <SettlementConfirmBar 영업사원={salesName} 정산월={monthName} saved={saved} />}
+    </div>
+  );
+}
+
+/** 정산화면 맨 아래: 확정(정산정보.확정여부 = 'Y') / 확정취소(NULL) */
+function SettlementConfirmBar({ 영업사원, 정산월, saved }: { 영업사원: string; 정산월: string; saved: SavedSettlement | null }) {
+  const [status, setStatus] = useState<SettlementConfirm | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // 정산결과를 저장하면(saved가 바뀌면) 정산정보가 새로 생기므로 다시 읽는다
+  useEffect(() => {
+    let cancelled = false;
+    getSettlementConfirmAction(영업사원, 정산월).then((res) => {
+      if (cancelled) return;
+      if (res.ok) setStatus(res.data);
+      else setError(res.error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [영업사원, 정산월, saved]);
+
+  function run(confirm: boolean) {
+    const label = `${영업사원} ${status?.정산월 ?? 정산월}`;
+    const question = confirm
+      ? `${label} 정산을 확정할까요?\n확정한 정산금은 다음 달 급여명세서의 성과급으로 들어갑니다.`
+      : `${label} 정산 확정을 취소할까요?`;
+    if (!window.confirm(question)) return;
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      const res = await setSettlementConfirmAction(영업사원, 정산월, confirm);
+      if (!res.ok) return setError(res.error);
+      setStatus(res.data);
+      setMessage(confirm ? "확정했습니다" : "확정을 취소했습니다");
+    });
+  }
+
+  const confirmed = !!status?.확정;
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-zinc-200 pt-3">
+      <span className="mr-auto text-xs text-zinc-600">
+        {!status ? (
+          "확정 상태를 확인하는 중…"
+        ) : !status.exists ? (
+          "정산결과를 저장해야 확정할 수 있습니다."
+        ) : confirmed ? (
+          <>
+            <span className="mr-1.5 rounded bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800">확정</span>
+            {영업사원} {status.정산월} 정산금(세후) {status.정산금 ?? "0"}원 · 다음 달 급여명세서 성과급에 반영
+          </>
+        ) : (
+          <>
+            <span className="mr-1.5 rounded bg-zinc-100 px-1.5 py-0.5 font-semibold text-zinc-600">미확정</span>
+            {영업사원} {status.정산월} 정산금(세후) {status.정산금 ?? "0"}원
+          </>
+        )}
+      </span>
+      {error && (
+        <span role="alert" className="text-xs text-red-700">
+          {error}
+        </span>
+      )}
+      {message && (
+        <span role="status" className="text-xs text-emerald-700">
+          {message}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => run(true)}
+        disabled={pending || !status?.exists || confirmed}
+        className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+      >
+        확정
+      </button>
+      <button
+        type="button"
+        onClick={() => run(false)}
+        disabled={pending || !confirmed}
+        className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-400"
+      >
+        확정취소
+      </button>
     </div>
   );
 }
@@ -641,6 +750,19 @@ function SettlementResultSections({
 }
 
 /** RD가 보는 정산 화면: 관리자가 정산결과 저장 후 게시한 정산결과를 게시 기간 동안 그대로 보여준다 */
+/** 급여명세서 성과급 상세: 저장 당시 정산결과를 보기만 한다 (저장·RD게시·의견 없음) */
+export function SettlementDetailSections({
+  result,
+  summary,
+  rates,
+}: {
+  result: SettlementWithCarryIn;
+  summary: SettlementSummaryValues | null;
+  rates: WorkerRates | null;
+}) {
+  return <SettlementResultSections result={result} readOnly fixedSummary={summary} rdRates={rates} />;
+}
+
 export function RdSettlementView({
   영업사원,
   정산월,

@@ -107,7 +107,10 @@ export type SavedSettlement = {
   영업사원: string;
   정산월: string;
   총이익금: number;
+  /** 세후 정산금액 (정산정보.정산금에 저장한 값) */
   정산금: number;
+  /** 세전 정산금액 (저장하지 않고 화면 안내용) */
+  세전정산금: number;
   이월금: number;
   누적이월금: number;
   /** 전달 누적이월금을 가져온 이전 달 (기록이 없거나 리셋이면 null) */
@@ -233,7 +236,8 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
     const account = await findSettlementAccount(영업사원ID, 영업사원);
     const [carryIn, extraCost] = await Promise.all([fetchCarryIn(target, account), fetchTargetExtraCost(target)]);
     const rates = ratesOf(account);
-    const { profit, settlement, carryOver } = summarizeSettlement(lines, carryIn.금액, rates, extraCost);
+    // 정산정보.정산금에는 항상 세후 정산금액을 저장한다 (급여명세서 성과급으로 쓰인다)
+    const { profit, settlement: beforeTax, carryOver, afterTax: settlement } = summarizeSettlement(lines, carryIn.금액, rates, extraCost);
     // 정산내역에서 다시 볼 수 있게 계산한 정산결과(현장별 내역·누적이월금·추가시공비·비율)를 함께 저장한다
     const snapshot: SettlementWithCarryIn = { ...computed, carryIn, rates, extraCost };
     const record = {
@@ -249,13 +253,18 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
     const sb = getSupabaseAdmin();
     const { data: existing, error: findError } = await sb
       .from(SETTLEMENT_INFO_TABLE)
-      .select("id")
+      .select("id, 확정여부")
       .eq("영업사원", 영업사원)
       .eq("정산월", 정산월)
       .order("id", { ascending: false })
       .limit(1);
     if (findError) return { ok: false, error: `정산정보 조회 실패: ${findError.message}` };
-    const existingId = (existing as unknown as { id: number }[])[0]?.id;
+    const found = (existing as unknown as { id: number; 확정여부: string | null }[])[0];
+    const existingId = found?.id;
+    // 확정한 정산은 급여명세서 성과급에 쓰이므로 금액이 바뀌지 않게 막는다
+    if (found && toConfirm(정산월, { 정산금: null, 확정여부: found.확정여부 }).확정) {
+      return { ok: false, error: `${영업사원} ${정산월} 정산은 확정되었습니다. 확정취소 후 다시 저장하세요.` };
+    }
     const write = (row: Record<string, unknown>) =>
       existingId ? sb.from(SETTLEMENT_INFO_TABLE).update(row).eq("id", existingId) : sb.from(SETTLEMENT_INFO_TABLE).insert(row);
     let { error } = await write({ ...record, 현장ids: lines.map((l) => l.id), 결과: snapshot });
@@ -270,6 +279,7 @@ export async function saveSettlementAction(ids: number[]): Promise<ActionResult<
         정산월,
         총이익금: profit,
         정산금: settlement,
+        세전정산금: beforeTax,
         이월금: carryOver,
         누적이월금: carryOver,
         이전정산월: carryIn.이전정산월,
@@ -571,6 +581,87 @@ export async function getSettlementHistoryDetailAction(id: number): Promise<Acti
     if (!row) return { ok: false, error: "정산정보를 찾을 수 없습니다" };
     if (auth.exclusion.names.includes(row.영업사원?.trim() ?? "")) return { ok: false, error: "정산정보를 찾을 수 없습니다" };
     return { ok: true, data: row.결과 ?? null };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+// ---------- 정산 확정 ----------
+// 확정한 정산정보의 정산금은 다음 달 급여명세서의 성과급이 된다 (src/lib/payroll.ts).
+
+/** 정산정보.확정여부에 저장하는 확정 값 (확정취소는 NULL) */
+const CONFIRMED = "Y";
+
+export type SettlementConfirm = {
+  /** 정산정보에 저장하는 정산월 (예: 2026-11) */
+  정산월: string;
+  /** 그 영업사원·정산월의 정산정보가 있는지 (정산결과를 저장해야 생긴다) */
+  exists: boolean;
+  확정: boolean;
+  정산금: string | null;
+};
+
+async function findSettlementInfo(영업사원: string, 정산월Label: string) {
+  const 정산월 = settlementYearMonth(정산월Label);
+  if (!정산월) return { error: `정산월 '${정산월Label}'에서 월을 읽을 수 없습니다` } as const;
+  const { data, error } = await getSupabaseAdmin()
+    .from(SETTLEMENT_INFO_TABLE)
+    .select("id, 정산금, 확정여부")
+    .eq("영업사원", 영업사원)
+    .eq("정산월", 정산월)
+    .order("id", { ascending: false })
+    .limit(1);
+  if (error) return { error: `정산정보 조회 실패: ${error.message}` } as const;
+  const row = (data as unknown as { id: number; 정산금: string | null; 확정여부: string | null }[])[0] ?? null;
+  return { 정산월, row } as const;
+}
+
+function toConfirm(정산월: string, row: { 정산금: string | null; 확정여부: string | null } | null): SettlementConfirm {
+  const v = row?.확정여부?.trim() ?? "";
+  return { 정산월, exists: !!row, 확정: v === CONFIRMED || v === "확정", 정산금: row?.정산금 ?? null };
+}
+
+function checkTarget(영업사원: unknown, 정산월: unknown): string | null {
+  if (typeof 영업사원 !== "string" || !영업사원.trim()) return "영업사원이 없습니다";
+  if (typeof 정산월 !== "string" || !정산월.trim()) return "정산월이 없습니다";
+  return null;
+}
+
+/** 관리자 이상 전용: 영업사원·정산월의 정산정보 확정 상태 */
+export async function getSettlementConfirmAction(영업사원: string, 정산월: string): Promise<ActionResult<SettlementConfirm>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "정산 권한이 없습니다" };
+  const invalid = checkTarget(영업사원, 정산월);
+  if (invalid) return { ok: false, error: invalid };
+  try {
+    const found = await findSettlementInfo(영업사원.trim(), 정산월);
+    if ("error" in found) return { ok: false, error: found.error as string };
+    return { ok: true, data: toConfirm(found.정산월, found.row) };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
+/** 관리자 이상 전용: 정산정보 확정(확정여부 = 'Y') / 확정취소(확정여부 = NULL) */
+export async function setSettlementConfirmAction(
+  영업사원: string,
+  정산월: string,
+  confirm: boolean,
+): Promise<ActionResult<SettlementConfirm>> {
+  const auth = await authorizeAction();
+  if (!auth.ok) return auth;
+  if (!auth.canApprove) return { ok: false, error: "정산 권한이 없습니다" };
+  const invalid = checkTarget(영업사원, 정산월);
+  if (invalid) return { ok: false, error: invalid };
+  try {
+    const found = await findSettlementInfo(영업사원.trim(), 정산월);
+    if ("error" in found) return { ok: false, error: found.error as string };
+    if (!found.row) return { ok: false, error: "정산결과를 먼저 저장하세요 (저장된 정산정보가 없습니다)" };
+    const 확정여부 = confirm ? CONFIRMED : null;
+    const { error } = await getSupabaseAdmin().from(SETTLEMENT_INFO_TABLE).update({ 확정여부 }).eq("id", found.row.id);
+    if (error) return { ok: false, error: `정산정보 ${confirm ? "확정" : "확정취소"} 실패: ${error.message}` };
+    return { ok: true, data: toConfirm(found.정산월, { ...found.row, 확정여부 }) };
   } catch (e) {
     return { ok: false, error: messageOf(e) };
   }

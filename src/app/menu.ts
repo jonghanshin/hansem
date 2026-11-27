@@ -43,6 +43,11 @@ export const MANAGER_MENU = [
     label: "정산",
     description: "영업사원·정산월별 미정산 현장을 골라 현장별 입금·출금 정산",
   },
+  {
+    href: "/payroll",
+    label: "급여",
+    description: "연도별 기준정보(요율·기본급·수당) 관리, 직급별 RD 월급명세서 작성",
+  },
 ] as const;
 
 /** 슈퍼관리자에게만 보이는 메뉴. 화면에서도 권한을 다시 확인한다 */
