@@ -65,7 +65,7 @@ async function MyPayslips({ searchParams }: { searchParams: SearchParams }) {
     );
   }
 
-  // 귀속월 29일부터 본인에게 보인다 (관리자가 미리 작성한 다음 달 명세서 등은 숨긴다)
+  // 귀속월 RELEASE_DAY(28)일부터 본인에게 보인다 (관리자가 미리 작성한 다음 달 명세서 등은 숨긴다)
   const released = result.slips.filter((s) => isReleased(s.귀속월, today));
   // 성과급: 한 달 전 정산월의 정산정보가 확정이면 그 정산금 (조회에 실패하면 저장된 성과급 그대로)
   const me = { 영업사원ID: session.sid, 이름: session.name };

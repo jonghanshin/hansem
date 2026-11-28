@@ -126,7 +126,7 @@ export type PayslipInput = {
 };
 
 /** 직원 화면에 명세서가 보이기 시작하는 날 (귀속월의 이 날부터) */
-export const RELEASE_DAY = 29;
+export const RELEASE_DAY = 28;
 
 export function isYearMonth(v: unknown): v is string {
   return typeof v === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
@@ -150,7 +150,7 @@ export function normalizeYmd(raw: string | null | undefined): string | null {
   return isYmdDate(ymd) ? ymd : null;
 }
 
-/** 귀속월(YYYY-MM)의 명세서를 직원이 볼 수 있는지 (그 달 29일부터) */
+/** 귀속월(YYYY-MM)의 명세서를 직원이 볼 수 있는지 (그 달 RELEASE_DAY일부터) */
 export function isReleased(month: string, today: string): boolean {
   return today >= `${month}-${String(RELEASE_DAY).padStart(2, "0")}`;
 }
